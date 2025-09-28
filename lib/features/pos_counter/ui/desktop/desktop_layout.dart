@@ -1,0 +1,345 @@
+import 'package:flutter/material.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/search_bar_panel.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/cart_items_list.dart';
+
+/// Defines the types of sales modes available in the bottom navigation bar.
+enum SaleType {
+  quick('Bán nhanh'),
+  normal('Bán thường'),
+  delivery('Bán giao hàng');
+
+  const SaleType(this.label);
+  final String label;
+}
+
+/// The main layout for the desktop POS interface, following the 2-column "Quick Sale"
+/// design inspired by KiotViet's new web retail interface.
+///
+/// This layout is composed of:
+/// 1. Main Column (Left, ~70%): Contains the search bar and the order items list (cart).
+/// 2. Side Column (Right, ~30%): Contains customer information and checkout/payment details.
+class DesktopLayout extends StatefulWidget {
+  const DesktopLayout({super.key});
+
+  @override
+  State<DesktopLayout> createState() => _DesktopLayoutState();
+}
+
+class _DesktopLayoutState extends State<DesktopLayout> {
+  SaleType _selectedSaleType = SaleType.quick;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        elevation: 1,
+        toolbarHeight: 80.0, // Set the desired height for the entire AppBar
+        // Use flexibleSpace to have full control over the AppBar's content.
+        flexibleSpace: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 8.0,
+            ),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 64),
+                // Placeholder for Search Bar, temporary order tabs, and menu
+                child: const SearchBarPanel(),
+              ),
+            ),
+          ),
+        ),
+      ),
+      body: _buildCurrentView(),
+      bottomNavigationBar: Container(
+        height: 50,
+        decoration: BoxDecoration(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          border: Border(
+            top: BorderSide(color: Colors.grey.shade300, width: 1),
+          ),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            // Left side: Sale type tabs
+            Row(
+              children: [
+                _buildSaleTypeTab(context, SaleType.quick),
+                _buildSaleTypeTab(context, SaleType.normal),
+                _buildSaleTypeTab(context, SaleType.delivery),
+              ],
+            ),
+            // Right side: Branch selector
+            Row(
+              children: [
+                const Icon(Icons.storefront_outlined, size: 20),
+                const SizedBox(width: 8),
+                // Placeholder for a DropdownButton
+                const Text('Chi nhánh Trung tâm'),
+                const Icon(Icons.arrow_drop_down),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Builds the main content view based on the currently selected sale type.
+  Widget _buildCurrentView() {
+    switch (_selectedSaleType) {
+      case SaleType.quick:
+        return const _QuickSaleView();
+      case SaleType.normal:
+        return const _NormalSaleView();
+      case SaleType.delivery:
+        return const _DeliverySaleView();
+    }
+  }
+
+  /// Helper widget to build a single sale type tab.
+  Widget _buildSaleTypeTab(BuildContext context, SaleType saleType) {
+    final bool isActive = _selectedSaleType == saleType;
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return TextButton(
+      onPressed: () {
+        setState(() {
+          _selectedSaleType = saleType;
+        });
+      },
+      style: TextButton.styleFrom(
+        backgroundColor: isActive
+            ? colorScheme.primaryContainer
+            : Colors.transparent,
+        foregroundColor: isActive
+            ? colorScheme.onPrimaryContainer
+            : colorScheme.onSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      child: Text(
+        saleType.label,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
+    );
+  }
+}
+
+/// The view for the "Delivery Sale" mode.
+///
+/// This layout is a 3-column design:
+/// - Left Column (~45%): The current order/cart, description, and checkout.
+/// - Middle Column (~27.5%): Customer and Delivery information.
+/// - Right Column (~27.5%): Delivery partner information.
+class _DeliverySaleView extends StatelessWidget {
+  const _DeliverySaleView();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        // --- Left Column: Order Panel ---
+        Expanded(
+          flex: 5, // Represents ~45% of the width
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 1. The list of items in the cart.
+                const Expanded(
+                  child: CartItemsList(),
+                ),
+                const SizedBox(height: 8),
+                // 2. Description and Checkout are now in a Row
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(),
+                          labelText: 'Mô tả đơn hàng',
+                        ),
+                        maxLines: 3,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      flex: 1,
+                      child: SizedBox(
+                        height: 120,
+                        child: Placeholder(
+                          child: Center(child: Text('Checkout')),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        // --- Middle Column: Customer & Delivery ---
+        Expanded(
+          flex: 3, // Represents ~27.5% of the width
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              children: const [
+                Expanded(
+                  child: Placeholder(
+                    child: Center(child: Text('Customer Info')),
+                  ),
+                ),
+                SizedBox(height: 8),
+                Expanded(
+                  child: Placeholder(
+                    child: Center(child: Text('Delivery Details')),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        // --- Right Column: Delivery Partner ---
+        Expanded(
+          flex: 3, // Represents ~27.5% of the width
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Placeholder(child: Center(child: Text('Đối tác giao hàng'))),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The view for the "Normal Sale" mode.
+///
+/// This layout is different from Quick Sale. It features:
+/// - Left Column (60%): The current order/cart.
+/// - Right Column (40%): A composite panel for selecting a customer and browsing products.
+class _NormalSaleView extends StatelessWidget {
+  const _NormalSaleView();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        // --- Left Column: Order Panel ---
+        Expanded(
+          flex: 6, // Represents ~60% of the width
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                // 1. The list of items in the cart.
+                Expanded(
+                  child: CartItemsList(),
+                ),
+                SizedBox(height: 8),
+                // 2. The resizable description text field at the bottom.
+                TextField(
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Mô tả đơn hàng',
+                  ),
+                  maxLines: 3,
+                ),
+              ],
+            ),
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        // --- Right Column: Customer & Product List ---
+        Expanded(
+          flex: 4, // Represents ~40% of the width
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              children: const [
+                // Placeholder for Customer Search/Info
+                SizedBox(
+                  height: 150,
+                  child: Placeholder(
+                    child: Center(child: Text('Customer Info Panel')),
+                  ),
+                ),
+                SizedBox(height: 8),
+                // Placeholder for Product List/Grid
+                Expanded(
+                  child: Placeholder(
+                    child: Center(child: Text('Product List')),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The view for the "Quick Sale" mode, containing the main 2-column layout.
+class _QuickSaleView extends StatelessWidget {
+  const _QuickSaleView();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        // --- Main Column (Left) ---
+        Expanded(
+          flex: 7, // Represents ~70% of the width
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                // This area represents the OrderPanel.
+                // It's split into the item list and a description box at the bottom.
+
+                // 1. The list of items in the cart.
+                Expanded(
+                  child: CartItemsList(),
+                ),
+
+                SizedBox(height: 8),
+
+                // 2. The resizable description text field at the bottom.
+                TextField(
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(),
+                    labelText: 'Mô tả đơn hàng',
+                  ),
+                  maxLines: 3, // Allows the field to expand up to 3 lines.
+                ),
+              ],
+            ),
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        // --- Side Column (Right) ---
+        Expanded(
+          flex: 3, // Represents ~30% of the width
+          child: Padding(
+            padding: const EdgeInsets.all(8.0),
+            // Placeholder for Customer Info and Checkout/Payment Panel
+            child: Placeholder(
+              child: Center(child: Text('Customer & Checkout Panel')),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
