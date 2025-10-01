@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:phan_phoi_son_gia_si/core/models/product.dart';
+import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:uuid/uuid.dart';
 
 /// A service to manage temporary orders, providing persistence across app sessions.
@@ -138,6 +139,30 @@ class TemporaryOrderService with ChangeNotifier {
         productId: variant.kiotVietId, // Using kiotVietId as unique ID
         productName: '${product.name} (${variant.volumeLiters}L)',
         unitPrice: variant.basePrice,
+      );
+      activeOrder.items.add(newItem);
+    }
+    _saveOrders();
+    notifyListeners();
+  }
+
+  void addKiotVietProductToActiveOrder(KiotVietProduct product) {
+    if (_activeOrderId == null) return;
+
+    final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+
+    // Check if item already exists
+    try {
+      final existingItem = activeOrder.items.firstWhere(
+        (item) => item.productId == product.id,
+      );
+      existingItem.quantity++;
+    } catch (e) {
+      // Item does not exist, add a new one
+      final newItem = CartItem(
+        productId: product.id, // Using KiotVietProduct.id as unique ID
+        productName: product.name,
+        unitPrice: product.basePrice,
       );
       activeOrder.items.add(newItem);
     }

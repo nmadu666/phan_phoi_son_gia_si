@@ -1,0 +1,18 @@
+{
+  "timeZone": "Asia/Ho_Chi_Minh",
+  "dependencies": {
+    "libraries": [{
+      "userSymbol": "FirestoreApp",
+      "libraryId": "1VUSl4b1r1L50B_iI3eB9V5u_B6A3t2V58V-t3pMy0M9vTMX_l5buhx2w",
+      "version": "33",
+      "developmentMode": false
+    }]
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.storage",
+    "https://www.googleapis.com/auth/datastore"
+  ]
+}

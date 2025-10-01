@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
-import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
-import 'package:phan_phoi_son_gia_si/core/services/product_service.dart';
-import 'package:phan_phoi_son_gia_si/core/models/product.dart';
+import 'package:phan_phoi_son_gia_si/core/services/kiotviet_product_service.dart';
+import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 
@@ -18,44 +17,37 @@ class SearchBarPanel extends StatefulWidget {
 
 class _SearchBarPanelState extends State<SearchBarPanel> {
   final ScrollController _scrollController = ScrollController();
-  final ProductService _productService = ProductService();
-  List<Product> _allProducts = [];
-  List<Product> _searchResults = [];
+  final KiotVietProductService _kiotVietProductService =
+      KiotVietProductService();
+  Future<List<KiotVietProduct>>? _searchResults;
   Timer? _debounce;
+  final SearchController _searchController = SearchController();
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _debounce?.cancel();
+    _searchController.dispose();
     super.dispose();
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _loadProducts();
-  }
-
-  Future<void> _loadProducts() async {
-    _allProducts = await _productService.getProducts();
   }
 
   void _onSearchChanged(String query) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      if (query.isEmpty) {
-        setState(() {
-          _searchResults = [];
-        });
+      if (query.trim().isEmpty) {
+        if (mounted) {
+          setState(() {
+            _searchResults = null;
+          });
+        }
         return;
       }
-      setState(() {
-        _searchResults = _allProducts
-            .where(
-              (product) =>
-                  product.name.toLowerCase().contains(query.toLowerCase()),
-            )
-            .toList();
-      });
+      // We are not calling setState here because the FutureBuilder will rebuild
+      // when the future changes.
+      _searchResults = _kiotVietProductService.searchProducts(query);
+      if (mounted) {
+        setState(() {});
+      }
     });
   }
 
@@ -70,52 +62,104 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         // --- Search Bar ---
-        // Use Material 3 SearchAnchor for search functionality
         SearchAnchor(
+          searchController: _searchController,
           builder: (BuildContext context, SearchController controller) {
             return SearchBar(
               controller: controller,
-              padding: const MaterialStatePropertyAll<EdgeInsets>(
+              padding: const WidgetStatePropertyAll<EdgeInsets>(
                 EdgeInsets.symmetric(horizontal: 16.0),
               ),
-              onTap: () => controller.openView(),
-              onChanged: (_) => controller.openView(),
+              onTap: () {
+                controller.openView();
+              },
+              onChanged: (query) {
+                _onSearchChanged(query);
+                if (!controller.isOpen) {
+                  controller.openView();
+                }
+              },
               leading: const Icon(Icons.search),
-              hintText: 'Tìm sản phẩm theo mã hoặc tên (F3)',
+              hintText: 'Tìm theo mã, tên sản phẩm (F3)',
               constraints: const BoxConstraints(minWidth: 360.0, maxWidth: 400),
             );
           },
           suggestionsBuilder:
               (BuildContext context, SearchController controller) {
-                _onSearchChanged(controller.text);
-                return _searchResults.map((product) {
-                  return ListTile(
-                    title: Text(product.name),
-                    onTap: () {
-                      setState(() {
-                        temporaryOrderService.addItemToActiveOrder(product);
-                        controller.closeView(null);
-                      });
-                    },
+            if (_searchResults == null) {
+              return [
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(18.0),
+                    child: Text('Nhập để tìm kiếm sản phẩm...'),
+                  ),
+                )
+              ];
+            }
+
+            return [
+              FutureBuilder<List<KiotVietProduct>>(
+                future: _searchResults,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                        child: Padding(
+                      padding: EdgeInsets.all(8.0),
+                      child: CircularProgressIndicator(),
+                    ));
+                  }
+
+                  if (snapshot.hasError) {
+                    print('FutureBuilder Error: ${snapshot.error}');
+                    print('Stack Trace: ${snapshot.stackTrace}');
+                    return Center(
+                        child: Padding(
+                      padding: EdgeInsets.all(18.0),
+                      // Display the error message to the user
+                      child: Text('Lỗi tìm kiếm: ${snapshot.error}'),
+                    ));
+                  }
+                  if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(18.0),
+                        child: Text('Không tìm thấy sản phẩm nào.'),
+                      ),
+                    );
+                  }
+
+                  final results = snapshot.data!;
+                  return Column(
+                    children: results.map((product) {
+                      return ListTile(
+                        title: Text(product.name),
+                        subtitle: Text(
+                            'Mã: ${product.code} - ĐVT: ${product.unit} - Giá: ${product.basePrice}'),
+                        onTap: () {
+                          temporaryOrderService
+                              .addKiotVietProductToActiveOrder(product);
+                          controller.closeView(null);
+                          setState(() {
+                            _searchResults = null;
+                          });
+                        },
+                      );
+                    }).toList(),
                   );
-                });
-              },
+                },
+              )
+            ];
+          },
         ),
         const SizedBox(width: 16),
 
         // --- Temporary Order Tabs ---
-        // This part will take the remaining available space.
-        // Use a Consumer to listen to changes in TemporaryOrderService
         Consumer<TemporaryOrderService>(
           builder: (context, orderService, child) {
-            // Create a list of keys that matches the current list of orders.
-            // This avoids side-effects inside the build method.
             final tabKeys = List.generate(
               orderService.orders.length,
               (index) => GlobalKey(),
             );
-            // The Expanded widget must be a direct child of the Row.
-            // The Listener then wraps the scrollable content inside.
             return Expanded(
               child: Row(
                 children: [
@@ -123,8 +167,7 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                     child: Listener(
                       onPointerSignal: (pointerSignal) {
                         if (pointerSignal is PointerScrollEvent) {
-                          final offset =
-                              _scrollController.offset +
+                          final offset = _scrollController.offset +
                               pointerSignal.scrollDelta.dy * 2;
                           _scrollController.animateTo(
                             offset,
@@ -155,8 +198,6 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                               label: Text(order.name),
                               onPressed: () {
                                 orderService.setActiveOrder(order.id);
-                                // Ensure the just-selected tab is visible.
-                                // A short delay allows the UI to rebuild before scrolling.
                                 Future.delayed(
                                   const Duration(milliseconds: 50),
                                   () {
@@ -177,7 +218,6 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                                 context,
                               ).colorScheme.primaryContainer,
                               onDeleted: () {
-                                // Show a confirmation dialog before deleting
                                 showDialog(
                                   context: context,
                                   builder: (BuildContext dialogContext) {
@@ -211,7 +251,6 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                       ),
                     ),
                   ),
-                  // The "Add" button is now outside the ListView, so it's always visible.
                   IconButton(
                     tooltip: 'Thêm đơn tạm mới',
                     onPressed: () {

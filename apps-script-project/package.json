@@ -1,0 +1,16 @@
+{
+  "name": "apps-script-project",
+  "version": "1.0.0",
+  "description": "A Google Apps Script project in TypeScript",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/google-apps-script": "^1.0.100",
+    "typescript": "^5.4.5"
+  }
+}

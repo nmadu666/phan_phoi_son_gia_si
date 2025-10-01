@@ -1,4 +1,3 @@
-import 'dart:convert';
 
 /// Represents a single item in the cart/temporary order.
 /// NOTE: This is a simplified model. In a real app, it would be more complex,

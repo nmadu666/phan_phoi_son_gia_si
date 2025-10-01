@@ -72,7 +72,7 @@ class _CartItemTile extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '${(item.quantity * item.unitPrice).toStringAsFixed(0)}',
+              (item.quantity * item.unitPrice).toStringAsFixed(0),
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(width: 16),
