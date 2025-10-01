@@ -1,12 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/desktop_layout.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:provider/provider.dart';
+import 'package:phan_phoi_son_gia_si/firebase_options.dart';
 
 void main() async {
-  // Ensure that plugin services are initialized so that `shared_preferences` can be used.
+  // Đảm bảo Flutter binding đã được khởi tạo.
+  // Đây là bước bắt buộc khi hàm main là một async function.
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Chờ cho Firebase khởi tạo xong trước khi chạy ứng dụng.
+  // Điều này đảm bảo mọi lệnh gọi đến Firebase sau đó đều hợp lệ.
+  // `DefaultFirebaseOptions.currentPlatform` sẽ tự động chọn cấu hình
+  // phù hợp cho web, android, ios, v.v.
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(
     ChangeNotifierProvider(
       create: (context) => TemporaryOrderService(),

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1058439936847",
+    "project_id": "phan-phoi-son-gia-si",
+    "storage_bucket": "phan-phoi-son-gia-si.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1058439936847:android:441f37dcf27cfd0b00a33a",
+        "android_client_info": {
+          "package_name": "com.example.phan_phoi_son_gia_si"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAq6AJ_AsrzPfGzrydIwlFRcp2cV4f1324"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
