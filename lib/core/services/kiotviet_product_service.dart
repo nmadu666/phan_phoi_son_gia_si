@@ -8,6 +8,30 @@ class KiotVietProductService {
   KiotVietProductService({FirebaseFirestore? firestore})
       : _firestore = firestore ?? FirebaseFirestore.instance;
 
+  Future<List<KiotVietProduct>> getRecentProducts({
+    DocumentSnapshot? lastDoc,
+    int limit = 15,
+  }) async {
+    try {
+      Query query = _firestore
+          .collection('kiotviet_products')
+          .orderBy('createdDate', descending: true)
+          .limit(limit);
+
+      if (lastDoc != null) {
+        query = query.startAfterDocument(lastDoc);
+      }
+
+      final querySnapshot = await query.get();
+      return querySnapshot.docs
+          .map((doc) => KiotVietProduct.fromFirestore(doc))
+          .toList();
+    } catch (e) {
+      print('An unexpected error occurred while fetching recent products: $e');
+      return [];
+    }
+  }
+
   Future<List<KiotVietProduct>> searchProducts(
     String query, {
     DocumentSnapshot? lastDoc,
@@ -22,46 +46,30 @@ class KiotVietProductService {
     final lowerCaseQuery = trimmedQuery.toLowerCase();
 
     try {
-      // Xây dựng truy vấn cơ sở
-      Query nameBaseQuery = _firestore
+      // Ưu tiên tìm kiếm theo mã sản phẩm trước, sau đó đến tên.
+      // Điều này giúp đơn giản hóa việc phân trang.
+      Query baseQuery = _firestore
           .collection('kiotviet_products')
-          .where('name_lowercase', isGreaterThanOrEqualTo: lowerCaseQuery)
-          .where('name_lowercase', isLessThan: '$lowerCaseQuery\uf8ff')
-          .limit(10);
-
-      Query codeBaseQuery = _firestore
-          .collection('kiotviet_products')
-          .where('code_lowercase', isGreaterThanOrEqualTo: lowerCaseQuery)
-          .where('code_lowercase', isLessThan: '$lowerCaseQuery\uf8ff')
-          .limit(10);
+          .where('search_keywords', arrayContains: lowerCaseQuery)
+          .orderBy('createdDate', descending: true) // Sắp xếp để phân trang nhất quán
+          .limit(15);
 
       // Nếu có `lastDoc`, bắt đầu truy vấn từ sau tài liệu đó
       if (lastDoc != null) {
-        nameBaseQuery = nameBaseQuery.startAfterDocument(lastDoc);
-        codeBaseQuery = codeBaseQuery.startAfterDocument(lastDoc);
+        baseQuery = baseQuery.startAfterDocument(lastDoc);
       }
 
-      final nameQuery = nameBaseQuery;
-      final codeQuery = codeBaseQuery;
+      final querySnapshot = await baseQuery.get();
 
-      // Thực thi cả hai truy vấn song song để tăng hiệu suất.
-      final results = await Future.wait([nameQuery.get(), codeQuery.get()]);
-
-      final nameResults = results[0].docs;
-      final codeResults = results[1].docs;
-
-      // Sử dụng Map để tự động loại bỏ các sản phẩm trùng lặp
-      // (trường hợp sản phẩm khớp cả tên và mã).
-      final allDocs = <String, KiotVietProduct>{};
-
-      for (var doc in nameResults) {
-        allDocs[doc.id] = KiotVietProduct.fromFirestore(doc);
-      }
-      for (var doc in codeResults) {
-        allDocs[doc.id] = KiotVietProduct.fromFirestore(doc);
-      }
-
-      return allDocs.values.toList();
+      // Để tìm kiếm hiệu quả hơn trên nhiều trường, bạn nên xem xét
+      // việc tạo một trường `search_keywords` trong document Firestore.
+      // Trường này là một mảng chứa các từ khóa đã được chuẩn hóa (chữ thường).
+      // Ví dụ: ['sp001', 'son', 'mau', 'xanh']
+      // Sau đó, bạn có thể dùng `array-contains` để truy vấn.
+      // Điều này đòi hỏi bạn phải cập nhật dữ liệu trên Firestore.
+      return querySnapshot.docs
+          .map((doc) => KiotVietProduct.fromFirestore(doc))
+          .toList();
     } on FirebaseException catch (e) {
       print(
         'A Firebase error occurred while searching products: ${e.code} - ${e.message}',

@@ -1,6 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_product_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
@@ -19,9 +21,10 @@ class SearchBarPanel extends StatefulWidget {
 class _SearchBarPanelState extends State<SearchBarPanel> {
   final ScrollController _scrollController = ScrollController();
   late final KiotVietProductService _kiotVietProductService;
-  // Thay đổi để lưu trữ danh sách kết quả, không phải Future
   List<KiotVietProduct> _searchResults = [];
+  DocumentSnapshot? _lastDocument;
   bool _isLoading = false;
+  bool _isLazyLoading = false;
   bool _hasMore = true;
   String _currentQuery = '';
   Timer? _debounce;
@@ -34,6 +37,7 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
     super.initState();
     // Khởi tạo service một lần.
     _kiotVietProductService = KiotVietProductService();
+    _suggestionsScrollController.addListener(_onSuggestionsScroll);
   }
 
   @override
@@ -48,50 +52,88 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
 
   void _onSearchChanged(String query) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 300), () {
+    _debounce = Timer(const Duration(milliseconds: 500), () {
       final trimmedQuery = query.trim();
       if (_currentQuery == trimmedQuery) return;
 
       _currentQuery = trimmedQuery;
-
-      if (_currentQuery.isEmpty) {
-        setState(() {
-          _searchResults = [];
-          _isLoading = false;
-        });
-        return;
-      }
-      _fetchProducts(isNewSearch: true);
+      _fetchInitialData();
     });
   }
 
-  Future<void> _fetchProducts({bool isNewSearch = false}) async {
-    if (_isLoading) return;
+  void _onSuggestionsScroll() {
+    if (_suggestionsScrollController.position.pixels ==
+        _suggestionsScrollController.position.maxScrollExtent) {
+      _fetchMoreData();
+    }
+  }
+
+  Future<void> _fetchInitialData() async {
+    if (_isLoading || _isLazyLoading) return;
 
     setState(() {
       _isLoading = true;
-      if (isNewSearch) {
-        _searchResults = [];
-        _hasMore = true;
-      }
+      _searchResults = [];
+      _lastDocument = null;
+      _hasMore = true;
     });
 
-    // `lastDoc` không thể được truyền trực tiếp, đây là một giới hạn.
-    // Để lazy loading thực sự hiệu quả với 2 query song song,
-    // cần một logic phức tạp hơn để quản lý `lastDoc` cho từng query.
-    // Tạm thời, chúng ta sẽ tải lại toàn bộ kết quả mở rộng.
-    // Hoặc đơn giản hơn là chỉ tìm kiếm trên một trường (ví dụ: name).
-    final newProducts =
-        await _kiotVietProductService.searchProducts(_currentQuery);
+    final newProducts = _currentQuery.isEmpty
+        ? await _kiotVietProductService.getRecentProducts()
+        : await _kiotVietProductService.searchProducts(_currentQuery);
 
     if (!mounted) return;
 
     setState(() {
-      _searchResults = newProducts; // Thay thế kết quả cũ
+      _searchResults = newProducts;
+      if (newProducts.isNotEmpty) {
+        _lastDocument = newProducts.last as DocumentSnapshot<Object?>?;
+      }
+      _hasMore = newProducts.length == 15;
       _isLoading = false;
-      // Giả định không có "tải thêm" trong logic hiện tại,
-      // vì việc kết hợp 2 query làm phức tạp việc phân trang.
-      _hasMore = false;
+    });
+  }
+
+  Future<void> _fetchMoreData() async {
+    if (_isLoading || _isLazyLoading || !_hasMore) return;
+
+    setState(() {
+      _isLazyLoading = true;
+    });
+
+    final moreProducts = _currentQuery.isEmpty
+        ? await _kiotVietProductService.getRecentProducts(
+            lastDoc: _lastDocument,
+          )
+        : await _kiotVietProductService.searchProducts(
+            _currentQuery,
+            lastDoc: _lastDocument,
+          );
+
+    if (!mounted) return;
+
+    setState(() {
+      _searchResults.addAll(moreProducts);
+      if (moreProducts.isNotEmpty) {
+        _lastDocument = moreProducts.last as DocumentSnapshot<Object?>?;
+      }
+      _hasMore = moreProducts.length == 15;
+      _isLazyLoading = false;
+    });
+  }
+
+  void _onSearchOpened() {
+    if (_currentQuery.isEmpty && _searchResults.isEmpty) {
+      _fetchInitialData();
+    }
+  }
+
+  void _onSearchClosed() {
+    setState(() {
+      _searchResults = [];
+      _currentQuery = '';
+      _lastDocument = null;
+      _hasMore = true;
     });
   }
 
@@ -101,6 +143,11 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
       context,
       listen: false,
     );
+    final authService = context.read<AuthService>();
+    final user = authService.currentUser;
+    final userDisplayName = user?.displayName?.isNotEmpty == true
+        ? user!.displayName
+        : user?.email;
 
     // Sử dụng Shortcuts và Actions để xử lý phím tắt F3.
     return Shortcuts(
@@ -120,6 +167,17 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // --- Logo ---
+            Padding(
+              padding: const EdgeInsets.only(right: 24.0),
+              child: Image.asset(
+                'assets/images/logo.png',
+                height: 36, // Điều chỉnh chiều cao cho phù hợp với AppBar
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(Icons.business); // Placeholder
+                },
+              ),
+            ),
             // --- Search Bar ---
             SearchAnchor(
               searchController: _searchController,
@@ -130,7 +188,10 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                   padding: const WidgetStatePropertyAll<EdgeInsets>(
                     EdgeInsets.symmetric(horizontal: 16.0),
                   ),
-                  onTap: () => controller.openView(),
+                  onTap: () {
+                    controller.openView();
+                    _onSearchOpened();
+                  },
                   onChanged: (query) {
                     _onSearchChanged(query);
                     if (!controller.isOpen) {
@@ -139,62 +200,72 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                   },
                   leading: const Icon(Icons.search),
                   hintText: 'Tìm theo mã, tên sản phẩm (F3)',
-                  constraints:
-                      const BoxConstraints(minWidth: 360.0, maxWidth: 400),
+                  constraints: const BoxConstraints(
+                    minWidth: 360.0,
+                    maxWidth: 400,
+                  ),
                 );
               },
               suggestionsBuilder:
                   (BuildContext context, SearchController controller) {
-                if (_currentQuery.isEmpty) {
-                  return [
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(18.0),
-                        child: Text('Nhập để tìm kiếm sản phẩm...'),
-                      ),
-                    ),
-                  ];
-                }
+                    if (_isLoading && _searchResults.isEmpty) {
+                      return [
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(18.0),
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
+                      ];
+                    }
 
-                if (_isLoading && _searchResults.isEmpty) {
-                  return [
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(18.0),
-                        child: CircularProgressIndicator(),
-                      ),
-                    ),
-                  ];
-                }
+                    if (_isLoading && _searchResults.isEmpty && _currentQuery.isNotEmpty) {
+                      return [
+                      ];
+                    }
 
-                if (_searchResults.isEmpty) {
-                  return [
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(18.0),
-                        child: Text('Không tìm thấy sản phẩm nào.'),
-                      ),
-                    ),
-                  ];
-                }
+                    if (_searchResults.isEmpty) {
+                      return [
+                        Padding(
+                          padding: const EdgeInsets.all(18.0),
+                          child: Center(
+                            child: Text(_currentQuery.isEmpty
+                                ? 'Không có sản phẩm nào.'
+                                : 'Không tìm thấy sản phẩm nào.'),
+                          ),
+                        ),
+                      ];
+                    }
 
-                return _searchResults.map((product) {
-                  return ListTile(
-                    title: Text(product.name),
-                    subtitle: Text(
-                        'Mã: ${product.code} - ĐVT: ${product.unit} - Giá: ${product.basePrice}'),
-                    onTap: () {
-                      temporaryOrderService
-                          .addKiotVietProductToActiveOrder(product);
-                      controller.closeView(null);
-                      setState(() {
-                        _searchResults = [];
-                        _currentQuery = '';
-                      });
-                    },
-                  );
-                }).toList();
-              },
+                    return _searchResults.map(
+                      (product) => ListTile(
+                        title: Text(product.name),
+                        subtitle: Text(
+                          'Mã: ${product.code} - ĐVT: ${product.unit} - Giá: ${product.basePrice}',
+                        ),
+                        onTap: () {
+                          temporaryOrderService
+                              .addKiotVietProductToActiveOrder(
+                            product,
+                          );
+                          controller.closeView(null);
+                          _onSearchClosed();
+                        },
+                      ),
+                    ).followedBy(
+                      [
+                        if (_hasMore)
+                          const ListTile(
+                            title: Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: CircularProgressIndicator(),
+                              ),
+                            ), // Wrap CircularProgressIndicator in ListTile
+                          ),
+                      ],
+                    );
+                  },
             ),
             const SizedBox(width: 16),
 
@@ -212,7 +283,8 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                         child: Listener(
                           onPointerSignal: (pointerSignal) {
                             if (pointerSignal is PointerScrollEvent) {
-                              final offset = _scrollController.offset +
+                              final offset =
+                                  _scrollController.offset +
                                   pointerSignal.scrollDelta.dy * 2;
                               _scrollController.animateTo(
                                 offset,
@@ -239,7 +311,10 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                                   key: key,
                                   avatar: isActive
                                       ? const Icon(Icons.check_circle, size: 18)
-                                      : const Icon(Icons.receipt_long, size: 18),
+                                      : const Icon(
+                                          Icons.receipt_long,
+                                          size: 18,
+                                        ),
                                   label: Text(order.name),
                                   onPressed: () {
                                     orderService.setActiveOrder(order.id);
@@ -275,14 +350,20 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                                             TextButton(
                                               child: const Text('Không'),
                                               onPressed: () {
-                                                Navigator.of(dialogContext).pop();
+                                                Navigator.of(
+                                                  dialogContext,
+                                                ).pop();
                                               },
                                             ),
                                             TextButton(
                                               child: const Text('Có, Xóa'),
                                               onPressed: () {
-                                                Navigator.of(dialogContext).pop();
-                                                orderService.deleteOrder(order.id);
+                                                Navigator.of(
+                                                  dialogContext,
+                                                ).pop();
+                                                orderService.deleteOrder(
+                                                  order.id,
+                                                );
                                               },
                                             ),
                                           ],
@@ -320,12 +401,31 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
               onPressed: () {},
               icon: const Icon(Icons.inventory_2_outlined),
             ),
-            IconButton(
+            if (userDisplayName != null) ...[
+              const SizedBox(width: 16),
+              Text(
+                userDisplayName,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ],
+            PopupMenuButton<String>(
               tooltip: 'Menu',
-              onPressed: () {
-                // TODO: Implement menu action
-              },
               icon: const Icon(Icons.menu),
+              onSelected: (value) {
+                if (value == 'logout') {
+                  // Gọi hàm signOut từ AuthService
+                  context.read<AuthService>().signOut();
+                }
+              },
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                const PopupMenuItem<String>(
+                  value: 'logout',
+                  child: ListTile(
+                    leading: Icon(Icons.logout),
+                    title: Text('Đăng xuất'),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/desktop_layout.dart';
+import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
+import 'package:phan_phoi_son_gia_si/features/auth/ui/auth_gate.dart';
 import 'package:provider/provider.dart';
 import 'package:phan_phoi_son_gia_si/firebase_options.dart';
 
@@ -14,12 +15,14 @@ void main() async {
   // Điều này đảm bảo mọi lệnh gọi đến Firebase sau đó đều hợp lệ.
   // `DefaultFirebaseOptions.currentPlatform` sẽ tự động chọn cấu hình
   // phù hợp cho web, android, ios, v.v.
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => TemporaryOrderService(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => AuthService()),
+        ChangeNotifierProvider(create: (context) => TemporaryOrderService()),
+        // Thêm các provider khác ở đây nếu cần
+      ],
       child: const MyApp(),
     ),
   );
@@ -52,7 +55,8 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const DesktopLayout(), // Set DesktopLayout as the home screen
+      home:
+          const AuthGate(), // Sử dụng AuthGate để kiểm tra trạng thái đăng nhập
     );
   }
 }
