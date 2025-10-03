@@ -3,20 +3,34 @@
  */
 
 /**
- * Clears the KiotViet token from the script cache.
- * Run this function to force the script to fetch a new token.
+ * Sets the KiotViet access token in Script Properties.
+ * @param {string} token The new access token to store.
  */
-function clearKiotVietTokenCache(): void {
+export function setKiotVietAccessToken(token: string): void {
+  if (!token || typeof token !== 'string') {
+    console.error("Invalid token provided. Please provide a valid access token string.");
+    return;
+  }
   try {
-    const cache = CacheService.getScriptCache();
-    cache.remove("kiotviet_token"); // Assuming the KiotViet token is cached with this key
-    Logger.log("KiotViet token cleared from cache.");
-    const ui = SpreadsheetApp.getUi();
-    if (ui) {
-      ui.alert("Success!", "KiotViet token has been cleared from the cache.", ui.ButtonSet.OK);
-    }
+    const scriptProperties = PropertiesService.getScriptProperties();
+    scriptProperties.setProperty("kiotviet_access_token", token);
+    console.log("KiotViet access token has been set in Script Properties.");
   } catch(e: any) {
-    Logger.log(`Error clearing token cache: ${e.toString()}`);
+    console.error(`Error setting access token in Properties: ${e.toString()}`);
   }
 }
 
+
+/**
+ * Clears the KiotViet access token from Script Properties.
+ * Run this function to force the script to fetch or request a new token.
+ */
+export function clearKiotVietAccessToken(): void {
+  try {
+    const scriptProperties = PropertiesService.getScriptProperties();
+    scriptProperties.deleteProperty("kiotviet_access_token");
+    console.log("KiotViet access token cleared from Script Properties.");
+  } catch(e: any) {
+    console.error(`Error clearing access token from Properties: ${e.toString()}`);
+  }
+}

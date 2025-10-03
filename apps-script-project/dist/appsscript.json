@@ -1,14 +1,18 @@
 {
   "timeZone": "Asia/Ho_Chi_Minh",
   "dependencies": {
-    "libraries": [
-      {
-        "userSymbol": "FirestoreApp",
-        "libraryId": "1VUSl4b1r1eoNcRWotZM3e87ygkxvXltOgyDZhixqncz9lQ3MjfT1iKFw",
-        "version": "33"
-      }
-    ]
+    "libraries": [{
+      "userSymbol": "FirestoreApp",
+      "libraryId": "1VUSl4b1r1eoNcRWotZM3e87ygkxvXltOgyDZhixqncz9lQ3MjfT1iKFw",
+      "version": "33",
+      "developmentMode": false
+    }]
   },
   "exceptionLogging": "STACKDRIVER",
-  "runtimeVersion": "V8"
+  "runtimeVersion": "V8",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/script.storage",
+    "https://www.googleapis.com/auth/datastore"
+  ]
 }

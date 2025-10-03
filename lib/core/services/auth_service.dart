@@ -6,7 +6,13 @@ class AuthService with ChangeNotifier {
 
   // Constructor để có thể inject dependency, hữu ích cho việc test
   AuthService({FirebaseAuth? firebaseAuth})
-      : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance;
+    : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance {
+    if (kDebugMode) {
+      // Tự động đăng nhập khi ở chế độ debug
+      // THAY THẾ email và password bằng tài khoản debug của bạn
+      signIn(email: 'admin@ppsgs.com', password: '12345678');
+    }
+  }
 
   // Stream để lắng nghe sự thay đổi trạng thái đăng nhập
   Stream<User?> get authStateChanges => _firebaseAuth.authStateChanges();
@@ -15,7 +21,10 @@ class AuthService with ChangeNotifier {
   User? get currentUser => _firebaseAuth.currentUser;
 
   // Đăng nhập bằng email và mật khẩu
-  Future<String?> signIn({required String email, required String password}) async {
+  Future<String?> signIn({
+    required String email,
+    required String password,
+  }) async {
     try {
       await _firebaseAuth.signInWithEmailAndPassword(
         email: email,
@@ -59,4 +68,3 @@ class AuthService with ChangeNotifier {
     }
   }
 }
-

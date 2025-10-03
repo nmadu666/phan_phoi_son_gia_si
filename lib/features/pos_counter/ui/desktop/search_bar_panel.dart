@@ -26,11 +26,11 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
   bool _isLoading = false;
   bool _isLazyLoading = false;
   bool _hasMore = true;
-  String _currentQuery = '';
   Timer? _debounce;
-  final SearchController _searchController = SearchController();
+  final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final ScrollController _suggestionsScrollController = ScrollController();
+  final OverlayPortalController _portalController = OverlayPortalController();
 
   @override
   void initState() {
@@ -38,6 +38,10 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
     // Khởi tạo service một lần.
     _kiotVietProductService = KiotVietProductService();
     _suggestionsScrollController.addListener(_onSuggestionsScroll);
+    // Lắng nghe sự thay đổi của text trong TextEditingController
+    _searchController.addListener(() {
+      _onSearchChanged(_searchController.text);
+    });
   }
 
   @override
@@ -47,29 +51,29 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
     _debounce?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
+    // _portalController is disposed by the OverlayPortal widget
     super.dispose();
   }
 
   void _onSearchChanged(String query) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
-      final trimmedQuery = query.trim();
-      if (_currentQuery == trimmedQuery) return;
-
-      _currentQuery = trimmedQuery;
-      _fetchInitialData();
+      _fetchInitialData(query);
     });
   }
 
   void _onSuggestionsScroll() {
     if (_suggestionsScrollController.position.pixels ==
-        _suggestionsScrollController.position.maxScrollExtent) {
-      _fetchMoreData();
+            _suggestionsScrollController.position.maxScrollExtent &&
+        _hasMore &&
+        !_isLazyLoading) {
+      // Thêm kiểm tra _isLazyLoading
+      _fetchMoreData(_searchController.text);
     }
   }
 
-  Future<void> _fetchInitialData() async {
-    if (_isLoading || _isLazyLoading) return;
+  Future<void> _fetchInitialData([String query = '']) async {
+    if (_isLoading) return;
 
     setState(() {
       _isLoading = true;
@@ -78,60 +82,92 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
       _hasMore = true;
     });
 
-    final newProducts = _currentQuery.isEmpty
-        ? await _kiotVietProductService.getRecentProducts()
-        : await _kiotVietProductService.searchProducts(_currentQuery);
+    try {
+      print('--- DEBUG (UI): Calling service with query: "$query" ---');
 
-    if (!mounted) return;
+      final result = query.isEmpty
+          ? await _kiotVietProductService.getRecentProducts()
+          : await _kiotVietProductService.searchProducts(query);
 
-    setState(() {
-      _searchResults = newProducts;
-      if (newProducts.isNotEmpty) {
-        _lastDocument = newProducts.last as DocumentSnapshot<Object?>?;
+      if (!mounted) return;
+
+      final newProducts = result['products'] as List<KiotVietProduct>;
+      final lastDoc = result['lastDoc'];
+
+      setState(() {
+        _searchResults = newProducts;
+        _lastDocument = lastDoc;
+        _hasMore = newProducts.length == 15;
+      });
+    } catch (e, s) {
+      debugPrint('Error fetching initial data: $e\n$s');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã xảy ra lỗi khi tải dữ liệu.')),
+        );
       }
-      _hasMore = newProducts.length == 15;
-      _isLoading = false;
-    });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
-  Future<void> _fetchMoreData() async {
-    if (_isLoading || _isLazyLoading || !_hasMore) return;
+  Future<void> _fetchMoreData(String query) async {
+    if (_isLazyLoading || !_hasMore || _lastDocument == null) return;
 
     setState(() {
       _isLazyLoading = true;
     });
 
-    final moreProducts = _currentQuery.isEmpty
-        ? await _kiotVietProductService.getRecentProducts(
-            lastDoc: _lastDocument,
-          )
-        : await _kiotVietProductService.searchProducts(
-            _currentQuery,
-            lastDoc: _lastDocument,
-          );
+    try {
+      final result = query.isEmpty
+          ? await _kiotVietProductService.getRecentProducts(
+              lastDoc: _lastDocument,
+            )
+          : await _kiotVietProductService.searchProducts(
+              query,
+              lastDoc: _lastDocument,
+            );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() {
-      _searchResults.addAll(moreProducts);
-      if (moreProducts.isNotEmpty) {
-        _lastDocument = moreProducts.last as DocumentSnapshot<Object?>?;
+      final moreProducts = result['products'] as List<KiotVietProduct>;
+      final lastDoc = result['lastDoc'];
+
+      setState(() {
+        _searchResults.addAll(moreProducts);
+        _lastDocument = lastDoc;
+        _hasMore = moreProducts.length == 15;
+      });
+    } catch (e, s) {
+      debugPrint('Error fetching more data: $e\n$s');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Đã xảy ra lỗi khi tải thêm dữ liệu.')),
+        );
       }
-      _hasMore = moreProducts.length == 15;
-      _isLazyLoading = false;
-    });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLazyLoading = false;
+        });
+      }
+    }
   }
 
   void _onSearchOpened() {
-    if (_currentQuery.isEmpty && _searchResults.isEmpty) {
+    if (_searchController.text.isEmpty && _searchResults.isEmpty) {
       _fetchInitialData();
     }
   }
 
   void _onSearchClosed() {
+    _portalController.hide();
     setState(() {
       _searchResults = [];
-      _currentQuery = '';
       _lastDocument = null;
       _hasMore = true;
     });
@@ -139,10 +175,7 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final temporaryOrderService = Provider.of<TemporaryOrderService>(
-      context,
-      listen: false,
-    );
+    final temporaryOrderService = context.watch<TemporaryOrderService>();
     final authService = context.read<AuthService>();
     final user = authService.currentUser;
     final userDisplayName = user?.displayName?.isNotEmpty == true
@@ -157,9 +190,8 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
       child: Actions(
         actions: <Type, Action<Intent>>{
           ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (ActivateIntent intent) {
+            onInvoke: (intent) {
               _searchFocusNode.requestFocus();
-              _searchController.openView();
               return null;
             },
           ),
@@ -179,215 +211,136 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
               ),
             ),
             // --- Search Bar ---
-            SearchAnchor(
-              searchController: _searchController,
-              builder: (BuildContext context, SearchController controller) {
-                return SearchBar(
+            SizedBox(
+              width: 400,
+              child: OverlayPortal(
+                controller: _portalController,
+                overlayChildBuilder: (BuildContext context) {
+                  return Positioned(
+                    top: 80, // Vị trí của AppBar
+                    left: 200, // Căn chỉnh vị trí theo SearchBar
+                    child: Material(
+                      elevation: 4.0,
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: 400,
+                        constraints: const BoxConstraints(maxHeight: 400),
+                        child: _buildSuggestionsList(),
+                      ),
+                    ),
+                  );
+                },
+                child: TextField(
                   focusNode: _searchFocusNode,
-                  controller: controller,
-                  padding: const WidgetStatePropertyAll<EdgeInsets>(
-                    EdgeInsets.symmetric(horizontal: 16.0),
-                  ),
+                  controller: _searchController,
                   onTap: () {
-                    controller.openView();
+                    _portalController.show();
                     _onSearchOpened();
                   },
-                  onChanged: (query) {
-                    _onSearchChanged(query);
-                    if (!controller.isOpen) {
-                      controller.openView();
-                    }
-                  },
-                  leading: const Icon(Icons.search),
-                  hintText: 'Tìm theo mã, tên sản phẩm (F3)',
-                  constraints: const BoxConstraints(
-                    minWidth: 360.0,
-                    maxWidth: 400,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Tìm theo mã, tên sản phẩm (F3)',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(30.0)),
+                      borderSide: BorderSide.none,
+                    ),
+                    filled: true,
+                    contentPadding: EdgeInsets.symmetric(horizontal: 16.0),
                   ),
-                );
-              },
-              suggestionsBuilder:
-                  (BuildContext context, SearchController controller) {
-                    if (_isLoading && _searchResults.isEmpty) {
-                      return [
-                        const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(18.0),
-                            child: CircularProgressIndicator(),
-                          ),
-                        ),
-                      ];
-                    }
-
-                    if (_isLoading && _searchResults.isEmpty && _currentQuery.isNotEmpty) {
-                      return [
-                      ];
-                    }
-
-                    if (_searchResults.isEmpty) {
-                      return [
-                        Padding(
-                          padding: const EdgeInsets.all(18.0),
-                          child: Center(
-                            child: Text(_currentQuery.isEmpty
-                                ? 'Không có sản phẩm nào.'
-                                : 'Không tìm thấy sản phẩm nào.'),
-                          ),
-                        ),
-                      ];
-                    }
-
-                    return _searchResults.map(
-                      (product) => ListTile(
-                        title: Text(product.name),
-                        subtitle: Text(
-                          'Mã: ${product.code} - ĐVT: ${product.unit} - Giá: ${product.basePrice}',
-                        ),
-                        onTap: () {
-                          temporaryOrderService
-                              .addKiotVietProductToActiveOrder(
-                            product,
-                          );
-                          controller.closeView(null);
-                          _onSearchClosed();
-                        },
-                      ),
-                    ).followedBy(
-                      [
-                        if (_hasMore)
-                          const ListTile(
-                            title: Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(8.0),
-                                child: CircularProgressIndicator(),
-                              ),
-                            ), // Wrap CircularProgressIndicator in ListTile
-                          ),
-                      ],
-                    );
-                  },
+                  style: const TextStyle(height: 1.2),
+                ),
+              ),
             ),
             const SizedBox(width: 16),
 
             // --- Temporary Order Tabs ---
-            Consumer<TemporaryOrderService>(
-              builder: (context, orderService, child) {
-                final tabKeys = List.generate(
-                  orderService.orders.length,
-                  (index) => GlobalKey(),
-                );
-                return Expanded(
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Listener(
-                          onPointerSignal: (pointerSignal) {
-                            if (pointerSignal is PointerScrollEvent) {
-                              final offset =
-                                  _scrollController.offset +
-                                  pointerSignal.scrollDelta.dy * 2;
-                              _scrollController.animateTo(
-                                offset,
-                                duration: const Duration(milliseconds: 100),
-                                curve: Curves.ease,
-                              );
-                            }
-                          },
-                          child: ListView.builder(
-                            controller: _scrollController,
-                            scrollDirection: Axis.horizontal,
-                            itemCount: orderService.orders.length,
-                            itemBuilder: (context, index) {
-                              final order = orderService.orders[index];
-                              final bool isActive =
-                                  order.id == orderService.activeOrderId;
-                              final key = tabKeys[index];
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Listener(
+                      onPointerSignal: (pointerSignal) {
+                        if (pointerSignal is PointerScrollEvent) {
+                          final offset =
+                              _scrollController.offset +
+                              pointerSignal.scrollDelta.dy * 2;
+                          _scrollController.animateTo(
+                            offset,
+                            duration: const Duration(milliseconds: 100),
+                            curve: Curves.ease,
+                          );
+                        }
+                      },
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        scrollDirection: Axis.horizontal,
+                        itemCount: temporaryOrderService.orders.length,
+                        itemBuilder: (context, index) {
+                          final order = temporaryOrderService.orders[index];
+                          final bool isActive =
+                              order.id == temporaryOrderService.activeOrderId;
 
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4.0,
-                                ),
-                                child: InputChip(
-                                  key: key,
-                                  avatar: isActive
-                                      ? const Icon(Icons.check_circle, size: 18)
-                                      : const Icon(
-                                          Icons.receipt_long,
-                                          size: 18,
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 4.0,
+                            ),
+                            child: InputChip(
+                              avatar: isActive
+                                  ? const Icon(Icons.check_circle, size: 18)
+                                  : const Icon(Icons.receipt_long, size: 18),
+                              label: Text(order.name),
+                              onPressed: () {
+                                temporaryOrderService.setActiveOrder(order.id);
+                              },
+                              selected: isActive,
+                              selectedColor: Theme.of(
+                                context,
+                              ).colorScheme.primaryContainer,
+                              onDeleted: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (BuildContext dialogContext) {
+                                    return AlertDialog(
+                                      title: const Text('Xác nhận xóa'),
+                                      content: Text(
+                                        'Bạn có chắc chắn muốn xóa "${order.name}" không?',
+                                      ),
+                                      actions: <Widget>[
+                                        TextButton(
+                                          child: const Text('Không'),
+                                          onPressed: () {
+                                            Navigator.of(dialogContext).pop();
+                                          },
                                         ),
-                                  label: Text(order.name),
-                                  onPressed: () {
-                                    orderService.setActiveOrder(order.id);
-                                    Future.delayed(
-                                      const Duration(milliseconds: 50),
-                                      () {
-                                        if (key.currentContext != null) {
-                                          Scrollable.ensureVisible(
-                                            key.currentContext!,
-                                            duration: const Duration(
-                                              milliseconds: 300,
-                                            ),
-                                            curve: Curves.easeInOut,
-                                          );
-                                        }
-                                      },
+                                        TextButton(
+                                          child: const Text('Có, Xóa'),
+                                          onPressed: () {
+                                            Navigator.of(dialogContext).pop();
+                                            temporaryOrderService.deleteOrder(
+                                              order.id,
+                                            );
+                                          },
+                                        ),
+                                      ],
                                     );
                                   },
-                                  selected: isActive,
-                                  selectedColor: Theme.of(
-                                    context,
-                                  ).colorScheme.primaryContainer,
-                                  onDeleted: () {
-                                    showDialog(
-                                      context: context,
-                                      builder: (BuildContext dialogContext) {
-                                        return AlertDialog(
-                                          title: const Text('Xác nhận xóa'),
-                                          content: Text(
-                                            'Bạn có chắc chắn muốn xóa "${order.name}" không?',
-                                          ),
-                                          actions: <Widget>[
-                                            TextButton(
-                                              child: const Text('Không'),
-                                              onPressed: () {
-                                                Navigator.of(
-                                                  dialogContext,
-                                                ).pop();
-                                              },
-                                            ),
-                                            TextButton(
-                                              child: const Text('Có, Xóa'),
-                                              onPressed: () {
-                                                Navigator.of(
-                                                  dialogContext,
-                                                ).pop();
-                                                orderService.deleteOrder(
-                                                  order.id,
-                                                );
-                                              },
-                                            ),
-                                          ],
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Thêm đơn tạm mới',
-                        onPressed: () {
-                          orderService.createNewOrder();
+                                );
+                              },
+                            ),
+                          );
                         },
-                        icon: const Icon(Icons.add),
                       ),
-                    ],
+                    ),
                   ),
-                );
-              },
+                  IconButton(
+                    tooltip: 'Thêm đơn tạm mới',
+                    onPressed: () {
+                      temporaryOrderService.createNewOrder();
+                    },
+                    icon: const Icon(Icons.add),
+                  ),
+                ],
+              ),
             ),
             // --- Menu Icon ---
             const SizedBox(width: 8),
@@ -430,6 +383,59 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildSuggestionsList() {
+    if (_isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(18.0),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    if (_searchResults.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.all(18.0),
+        child: Center(
+          child: Text(
+            _searchController.text.isEmpty
+                ? 'Gợi ý sản phẩm gần đây'
+                : 'Không tìm thấy sản phẩm nào.',
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      controller: _suggestionsScrollController,
+      itemCount: _searchResults.length + (_hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _searchResults.length) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(8.0),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+        final product = _searchResults[index];
+        return ListTile(
+          title: Text(product.name),
+          subtitle: Text(
+            'Mã: ${product.code} - ĐVT: ${product.unit} - Giá: ${product.basePrice}',
+          ),
+          onTap: () {
+            context
+                .read<TemporaryOrderService>()
+                .addKiotVietProductToActiveOrder(product);
+            _onSearchClosed();
+          },
+        );
+      },
     );
   }
 }

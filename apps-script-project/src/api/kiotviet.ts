@@ -1,27 +1,76 @@
 /**
  * @fileoverview Contains functions for interacting with the KiotViet API.
  */
-import { showToast } from '../core/ui';
+import {
+  getKiotVietClientId,
+  getKiotVietClientSecret,
+  getKiotVietRetailer,
+} from '../core/config';
+import { getScriptProperty, setScriptProperty } from '../core/properties';
 
-// (Nội dung của các hàm fetchKiotVietApi và fetchAllKiotVietData từ helpers.ts cũ được chuyển vào đây)
+/**
+ * Fetches a new KiotViet access token and saves it to script properties.
+ * This function should be run whenever the old token expires.
+ */
+export function refreshKiotVietAccessToken(): void {
+  const tokenUrl = 'https://id.kiotviet.vn/connect/token';
+
+  const payload = {
+    scopes: 'PublicApi.Access',
+    grant_type: 'client_credentials',
+    client_id: getKiotVietClientId(),
+    client_secret: getKiotVietClientSecret(),
+  };
+
+  const options: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions = {
+    method: 'post',
+    contentType: 'application/x-www-form-urlencoded',
+    payload: payload,
+    muteHttpExceptions: true,
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(tokenUrl, options);
+    const responseCode = response.getResponseCode();
+    const responseBody = response.getContentText();
+
+    if (responseCode === 200) {
+      const data = JSON.parse(responseBody);
+      const newAccessToken = data.access_token;
+
+      if (newAccessToken) {
+        setScriptProperty('kiotviet_access_token', newAccessToken);
+        Logger.log(
+          'Successfully refreshed and saved new KiotViet access token.'
+        );
+      } else {
+        throw new Error('Access token not found in KiotViet response.');
+      }
+    } else {
+      throw new Error(
+        `Request failed with status ${responseCode}: ${responseBody}`
+      );
+    }
+  } catch (e: any) {
+    Logger.log(`Failed to refresh KiotViet access token: ${e.toString()}`);
+    throw new Error(`Failed to refresh KiotViet access token: ${e.toString()}`);
+  }
+}
+
 /**
  * Performs a GET request to the KiotViet API with retry logic.
  * @param {string} url The full URL to fetch.
  * @returns {GoogleAppsScript.URL_Fetch.HTTPResponse} The HTTP response.
  * @throws {Error} if KiotViet credentials are not set or if the request fails after 3 retries.
  */
-function fetchKiotVietApi(url: string): GoogleAppsScript.URL_Fetch.HTTPResponse {
-  const scriptProperties = PropertiesService.getScriptProperties();
-  const kiotVietAccessToken = scriptProperties.getProperty('kiotviet_access_token');
-  const kiotVietRetailer = scriptProperties.getProperty('kiotviet_retailer');
-
-  if (!kiotVietAccessToken || !kiotVietRetailer) {
-    throw new Error('Missing kiotviet_access_token or kiotviet_retailer in Script Properties.');
-  }
+function fetchKiotVietApi(
+  url: string
+): GoogleAppsScript.URL_Fetch.HTTPResponse {
+  let kiotVietAccessToken = getScriptProperty('kiotviet_access_token');
 
   const headers = {
-    'Authorization': 'Bearer ' + kiotVietAccessToken,
-    'Retailer': kiotVietRetailer,
+    Authorization: 'Bearer ' + kiotVietAccessToken,
+    Retailer: getKiotVietRetailer(),
   };
 
   const options: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions = {
@@ -36,18 +85,30 @@ function fetchKiotVietApi(url: string): GoogleAppsScript.URL_Fetch.HTTPResponse 
       if (response.getResponseCode() < 400) {
         return response;
       }
-      Logger.log(`KiotViet API returned status ${response.getResponseCode()} for URL . Retrying...`);
+      // If token is expired (401), try refreshing it
+      if (response.getResponseCode() === 401 && i < 2) {
+        Logger.log('KiotViet token expired. Refreshing...');
+        refreshKiotVietAccessToken();
+        // re-fetch the token for the new request
+        kiotVietAccessToken = getScriptProperty('kiotviet_access_token');
+        headers['Authorization'] = 'Bearer ' + kiotVietAccessToken;
+        continue; // Retry the request immediately with the new token
+      }
+      Logger.log(
+        `KiotViet API returned status ${response.getResponseCode()} for URL ${url}. Retrying...`
+      );
     } catch (e: any) {
-      Logger.log(`Network error calling KiotViet API (Attempt ${i + 1}): ${e.toString()}`);
+      Logger.log(
+        `Network error calling KiotViet API (Attempt ${i + 1}): ${e.toString()}`
+      );
     }
     if (i < 2) {
       Utilities.sleep(2000); // Wait 2 seconds before retrying
     }
   }
-  
-  throw new Error(`Failed to fetch from KiotViet API at  after 3 attempts.`);
-}
 
+  throw new Error(`Failed to fetch from KiotViet API at ${url} after 3 attempts.`);
+}
 
 /**
  * Fetches ALL data from a KiotViet endpoint by iterating through pages.
@@ -61,36 +122,44 @@ export function fetchAllKiotVietData(endpoint: string): any[] {
   let totalItems = -1;
 
   const baseUrl = 'https://public.kiotapi.com';
-  showToast("KiotViet Fetch", `Starting data fetch from: ...`, -1);
+  Logger.log(`Starting data fetch from: ${endpoint}`);
 
-  const initialUrl = `?currentItem=&pageSize=`;
+  const initialUrl = `${baseUrl}${endpoint}?currentItem=${currentItem}&pageSize=${pageSize}`;
   const initialResponse = fetchKiotVietApi(initialUrl);
   const initialResult = JSON.parse(initialResponse.getContentText());
 
-  if (initialResult && initialResult.total > 0 && Array.isArray(initialResult.data)) {
+  if (
+    initialResult &&
+    initialResult.total > 0 &&
+    Array.isArray(initialResult.data)
+  ) {
     totalItems = initialResult.total;
     allData.push(...initialResult.data);
     currentItem = initialResult.data.length;
-    showToast(endpoint, `Fetched / items...`);
+    Logger.log(`Fetched ${currentItem}/${totalItems} items from ${endpoint}...`);
   } else {
-    showToast("Complete", `No data found at .`, 5);
+    Logger.log(`No data found at ${endpoint}.`);
     return [];
   }
-  
+
   while (currentItem < totalItems) {
-    const url = `?currentItem=&pageSize=`;
+    const url = `${baseUrl}${endpoint}?currentItem=${currentItem}&pageSize=${pageSize}`;
     const response = fetchKiotVietApi(url);
     const result = JSON.parse(response.getContentText());
-    
+
     if (result && Array.isArray(result.data) && result.data.length > 0) {
       allData.push(...result.data);
       currentItem += result.data.length;
-      showToast(endpoint, `Fetching data... /`);
+      Logger.log(
+        `Fetching data... ${currentItem}/${totalItems} from ${endpoint}`
+      );
     } else {
-      break; 
+      break;
     }
   }
 
-  showToast("Complete", `Finished fetching ${allData.length} items from .`, 5);
+  Logger.log(
+    `Finished fetching ${allData.length} items from ${endpoint}.`
+  );
   return allData;
 }

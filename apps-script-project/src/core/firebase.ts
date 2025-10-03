@@ -9,6 +9,11 @@
  * 3. Click 'Look up', select the latest version, and set the identifier to 'FirestoreApp'.
  * 4. Click 'Add'.
  */
+import {
+  getFirestoreClientEmail,
+  getFirestorePrivateKey,
+  getFirestoreProjectId,
+} from './config';
 
 /**
  * Creates and returns an authenticated Firestore instance.
@@ -19,14 +24,9 @@
  * @returns {GoogleAppsScript.Firestore.Firestore} An authenticated Firestore instance from the FirestoreGoogleAppsScript library.
  */
 export function getFirestoreInstance(): Firestore {
-  const scriptProperties = PropertiesService.getScriptProperties();
-  const clientEmail = scriptProperties.getProperty('firestore_client_email');
-  const privateKey = scriptProperties.getProperty('firestore_private_key');
-  const projectId = scriptProperties.getProperty('firestore_project_id');
-
-  if (!clientEmail || !privateKey || !projectId) {
-    throw new Error('Missing Firestore credentials (client_email, private_key, or project_id) in Script Properties.');
-  }
-
-  return FirestoreApp.getFirestore(clientEmail, privateKey, projectId);
+  return FirestoreApp.getFirestore(
+    getFirestoreClientEmail(),
+    getFirestorePrivateKey(),
+    getFirestoreProjectId()
+  );
 }

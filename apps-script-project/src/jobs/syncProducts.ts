@@ -4,10 +4,9 @@
 import { fetchAllKiotVietData } from '../api/kiotviet';
 import { generateKeywordsFromText } from '../core/text';
 import { batchWriteToFirestore } from '../api/firestore_rest';
-import { showToast } from '../core/ui';
 
 /**
- * Fetches all products from the KiotViet API and syncs them to the 'kiotviet_products' 
+ * Fetches all products from the KiotViet API and syncs them to the 'kiotviet_products'
  * collection in Firestore, enriching them with search keywords.
  */
 export function syncKiotVietProductsToFirestore(): void {
@@ -34,16 +33,17 @@ export function syncKiotVietProductsToFirestore(): void {
       });
 
       // Step 3: Write the data to Firestore in batches
-      Logger.log(`Fetched ${productsWithKeywords.length} products. Starting batch write to Firestore collection: ${collectionName}`);
+      Logger.log(
+        `Fetched ${productsWithKeywords.length} products. Starting batch write to Firestore collection: ${collectionName}`
+      );
       batchWriteToFirestore(collectionName, productsWithKeywords);
       Logger.log('Successfully completed synchronization.');
-      showToast('Sync Complete!', `Successfully synced ${productsWithKeywords.length} products to Firestore.`);
     } else {
       Logger.log('No products found to sync.');
-      showToast('Sync Complete', 'No new products to sync.');
     }
   } catch (e: any) {
-    Logger.log(`An error occurred during the sync process: ${e.toString()}\n${e.stack}`);
-    showToast('Sync Failed', `Error: ${e.message}`);
+    Logger.log(
+      `An error occurred during the sync process: ${e.toString()}\n${e.stack}`
+    );
   }
 }
