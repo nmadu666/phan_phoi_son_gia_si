@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
+import 'package:phan_phoi_son_gia_si/core/services/pos_settings_service.dart';
 import 'package:phan_phoi_son_gia_si/features/auth/ui/auth_gate.dart';
 import 'package:provider/provider.dart';
 import 'package:phan_phoi_son_gia_si/firebase_options.dart';
@@ -21,6 +22,7 @@ void main() async {
       providers: [
         ChangeNotifierProvider(create: (context) => AuthService()),
         ChangeNotifierProvider(create: (context) => TemporaryOrderService()),
+        ChangeNotifierProvider(create: (context) => PosSettingsService()),
         // Thêm các provider khác ở đây nếu cần
       ],
       child: const MyApp(),

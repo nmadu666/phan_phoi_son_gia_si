@@ -6,6 +6,7 @@ import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_product_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/pos_settings_dialog.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 
@@ -365,12 +366,26 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
               tooltip: 'Menu',
               icon: const Icon(Icons.menu),
               onSelected: (value) {
-                if (value == 'logout') {
-                  // Gọi hàm signOut từ AuthService
-                  context.read<AuthService>().signOut();
+                switch (value) {
+                  case 'settings':
+                    showDialog(
+                      context: context,
+                      builder: (context) => const PosSettingsDialog(),
+                    );
+                    break;
+                  case 'logout':
+                    context.read<AuthService>().signOut();
+                    break;
                 }
               },
               itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                const PopupMenuItem<String>(
+                  value: 'settings',
+                  child: ListTile(
+                    leading: Icon(Icons.settings_outlined),
+                    title: Text('Tùy chỉnh hiển thị'),
+                  ),
+                ),
                 const PopupMenuItem<String>(
                   value: 'logout',
                   child: ListTile(

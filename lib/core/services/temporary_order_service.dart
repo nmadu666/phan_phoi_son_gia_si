@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:phan_phoi_son_gia_si/core/models/product.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:uuid/uuid.dart';
 
@@ -115,58 +114,148 @@ class TemporaryOrderService with ChangeNotifier {
     }
   }
 
-  /// Adds a product (as a CartItem) to the currently active order.
-  /// If the item already exists, its quantity is incremented.
-  void addItemToActiveOrder(Product product) {
+  /// Generic private method to add an item to the active order.
+  /// This avoids code duplication.
+  void _addItemToActiveOrder({
+    required String productId,
+    required String productName,
+    required String productCode,
+    required double unitPrice,
+  }) {
     if (_activeOrderId == null) return;
-    if (product.variants.isEmpty) return; // Cannot add product without variants
-
-    // For simplicity, we'll add the first variant.
-    // A real app might show a dialog to select a variant.
-    final variant = product.variants.first;
 
     final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
 
-    // Check if item already exists
-    try {
-      final existingItem = activeOrder.items.firstWhere(
-        (item) => item.productId == variant.kiotVietId,
-      );
-      existingItem.quantity++;
-    } catch (e) {
-      // Item does not exist, add a new one
+    // Check if item already exists using a safer method.
+    final existingItemIndex = activeOrder.items.indexWhere(
+      (item) => item.productId == productId,
+    );
+
+    if (existingItemIndex != -1) {
+      // Item exists, increment quantity.
+      activeOrder.items[existingItemIndex].quantity++;
+    } else {
+      // Item does not exist, add a new one.
       final newItem = CartItem(
-        productId: variant.kiotVietId, // Using kiotVietId as unique ID
-        productName: '${product.name} (${variant.volumeLiters}L)',
-        unitPrice: variant.basePrice,
+        productId: productId,
+        productName: productName,
+        productCode: productCode,
+        unitPrice: unitPrice,
       );
       activeOrder.items.add(newItem);
     }
+
     _saveOrders();
     notifyListeners();
   }
 
   void addKiotVietProductToActiveOrder(KiotVietProduct product) {
-    if (_activeOrderId == null) return;
+    _addItemToActiveOrder(
+      productId: product.id,
+      productName: product.name,
+      productCode: product.code,
+      unitPrice: product.basePrice,
+    );
+  }
 
-    final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
-
-    // Check if item already exists
+  /// Finds an item in the active order by its product ID.
+  CartItem? _findItemInActiveOrder(String productId) {
+    if (_activeOrderId == null) return null;
     try {
-      final existingItem = activeOrder.items.firstWhere(
-        (item) => item.productId == product.id,
+      final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+      return activeOrder.items.firstWhere(
+        (item) => item.productId == productId,
       );
-      existingItem.quantity++;
     } catch (e) {
-      // Item does not exist, add a new one
-      final newItem = CartItem(
-        productId: product.id, // Using KiotVietProduct.id as unique ID
-        productName: product.name,
-        unitPrice: product.basePrice,
-      );
-      activeOrder.items.add(newItem);
+      return null; // Order or item not found
     }
-    _saveOrders();
-    notifyListeners();
+  }
+
+  /// Updates the quantity of an item in the active order.
+  /// Quantity can be a double.
+  void updateItemQuantity(String productId, double newQuantity) {
+    final item = _findItemInActiveOrder(productId);
+    if (item != null) {
+      // Ensure quantity is not negative
+      if (newQuantity <= 0) {
+        // If quantity is zero or less, remove the item
+        final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+        activeOrder.items.removeWhere((i) => i.productId == productId);
+      } else {
+        item.quantity = newQuantity;
+      }
+      // When quantity changes, the overridden total might no longer be valid.
+      item.overriddenLineTotal = null;
+      _saveOrders();
+      notifyListeners();
+    }
+  }
+
+  /// Updates the unit price of an item in the active order.
+  void updateItemUnitPrice(String productId, double newUnitPrice) {
+    final item = _findItemInActiveOrder(productId);
+    if (item != null && newUnitPrice >= 0) {
+      item.unitPrice = newUnitPrice;
+      // When unit price changes, the overridden total might no longer be valid.
+      item.overriddenLineTotal = null;
+      _saveOrders();
+      notifyListeners();
+    }
+  }
+
+  /// Applies a discount to an item in the active order.
+  ///
+  /// - [discountValue]: The value of the discount.
+  /// - [isPercentage]: True if the discount is a percentage, false for a fixed amount.
+  void applyItemDiscount(
+    String productId,
+    double discountValue, {
+    required bool isPercentage,
+  }) {
+    final item = _findItemInActiveOrder(productId);
+    if (item != null && discountValue >= 0) {
+      item.discount = discountValue;
+      item.isDiscountPercentage = isPercentage;
+      // When discount changes, the overridden total might no longer be valid.
+      item.overriddenLineTotal = null;
+      _saveOrders();
+      notifyListeners();
+    }
+  }
+
+  /// Overrides the line total for an item.
+  /// When this is set, it bypasses all other calculations for the item's total.
+  /// To remove the override, set [newTotal] to null.
+  void overrideItemLineTotal(String productId, double? newTotal) {
+    final item = _findItemInActiveOrder(productId);
+    if (item != null) {
+      if (newTotal != null && newTotal < 0)
+        return; // Cannot have negative total
+
+      item.overriddenLineTotal = newTotal;
+
+      // If override is removed, reset discount to 0
+      if (newTotal == null) {
+        item.discount = 0;
+        item.isDiscountPercentage = false;
+      }
+
+      _saveOrders();
+      notifyListeners();
+    }
+  }
+
+  /// Removes an item from the active order.
+  void removeItem(String productId) {
+    if (_activeOrderId == null) return;
+    final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+    final originalLength = activeOrder.items.length;
+    activeOrder.items.removeWhere((item) => item.productId == productId);
+
+    // Only notify if an item was actually removed
+    if (activeOrder.items.length < originalLength) {
+      _saveOrders();
+      notifyListeners();
+    }
   }
 }
