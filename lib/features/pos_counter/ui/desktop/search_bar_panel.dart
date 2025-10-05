@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
+import 'package:phan_phoi_son_gia_si/core/models/app_user.dart';
 import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_product_service.dart';
@@ -9,6 +10,7 @@ import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/pos_settings_dialog.dart';
 import 'package:phan_phoi_son_gia_si/features/user_management/ui/user_management_screen.dart';
 import 'package:provider/provider.dart';
+import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
 import 'dart:async';
 
 /// A widget that contains the main search bar and temporary order tabs,

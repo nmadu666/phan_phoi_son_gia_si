@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_sale_channel.dart';
+import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_user.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_sale_channel_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_user_service.dart';
@@ -13,6 +14,7 @@ import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart'
 import 'package:intl/intl.dart';
 
 import '../../../../core/models/temporary_order.dart';
+import '../../../../core/services/app_state_service.dart';
 import '../../../../core/utils/icon_mapper.dart';
 import '../../../../core/services/auth_service.dart';
 
@@ -57,26 +59,25 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
   }
 
   void _setDefaultSeller() {
+    // Lấy các service cần thiết từ context
     final authService = context.read<AuthService>();
     final orderService = context.read<TemporaryOrderService>();
+    final appUserService = context.read<AppUserService>();
     final currentUser = authService.currentUser;
 
     if (currentUser != null && orderService.activeOrderId != null) {
       final activeOrder = orderService.orders.firstWhere(
         (o) => o.id == orderService.activeOrderId,
       );
-      // Only set default seller if one isn't already set
+      // Chỉ đặt nhân viên mặc định nếu chưa có ai được chọn
       if (activeOrder.seller == null) {
-        _usersFuture.then((users) {
-          try {
-            // Find the KiotVietUser that corresponds to the logged-in Firebase user
-            final defaultSeller = users.firstWhere(
-              (u) =>
-                  u.userName.toLowerCase() == currentUser.email!.toLowerCase(),
+        // Lấy thông tin AppUser và sau đó lấy KiotVietUser từ reference
+        appUserService.getUser(currentUser.uid).then((appUser) async {
+          if (appUser?.kiotvietUserRef != null) {
+            final defaultSeller = await appUserService.getUserFromRef(
+              appUser!.kiotvietUserRef,
             );
             orderService.setSellerForActiveOrder(defaultSeller);
-          } catch (e) {
-            print('Default seller not found in KiotViet users list.');
           }
         });
       }
@@ -112,7 +113,20 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
       _isLoading = true;
     });
 
-    final result = await _customerService.searchCustomers(query);
+    final appState = context.read<AppStateService>();
+    final authService = context.read<AuthService>();
+    final appUserService = context.read<AppUserService>();
+
+    final branchId = appState.get<int>(AppStateService.selectedBranchIdKey);
+    final appUser = authService.currentUser != null
+        ? await appUserService.getUser(authService.currentUser!.uid)
+        : null;
+
+    final result = await _customerService.searchCustomers(
+      query,
+      currentUser: appUser,
+      branchId: branchId,
+    );
     if (mounted) {
       setState(() {
         _searchResults = result['customers'];
@@ -370,12 +384,13 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
             );
           }).toList(),
           onChanged: (userId) {
-            if (userId != null) {
-              final seller = users.firstWhere((u) => u.id == userId);
-              context.read<TemporaryOrderService>().setSellerForActiveOrder(
-                seller,
-              );
-            }
+            final KiotVietUser? seller = (userId == null)
+                ? null
+                : users.firstWhere((u) => u.id == userId);
+
+            context.read<TemporaryOrderService>().setSellerForActiveOrder(
+              seller,
+            );
           },
         );
       },

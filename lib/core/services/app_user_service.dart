@@ -23,6 +23,12 @@ class AppUserService {
     return _usersCollection.doc(uid).snapshots().map((doc) => doc.data());
   }
 
+  /// Retrieves a single AppUser document from Firestore.
+  Future<AppUser?> getUser(String uid) async {
+    final doc = await _usersCollection.doc(uid).get();
+    return doc.data();
+  }
+
   /// Checks if the user's profile is complete.
   bool isProfileComplete(AppUser? user) {
     return user != null &&
@@ -42,12 +48,7 @@ class AppUserService {
 
       // Resolve KiotViet Branch
       if (appUser.kiotvietBranchRef != null) {
-        final branchDoc = await appUser.kiotvietBranchRef!.get();
-        if (branchDoc.exists) {
-          branch = KiotVietBranch.fromFirestore(
-            branchDoc as DocumentSnapshot<Map<String, dynamic>>,
-          );
-        }
+        branch = await getBranchFromRef(appUser.kiotvietBranchRef);
       }
 
       // Resolve KiotViet User
@@ -70,6 +71,38 @@ class AppUserService {
     }
 
     return detailedUsers;
+  }
+
+  /// Fetches KiotVietBranch details from a DocumentReference.
+  Future<KiotVietBranch?> getBranchFromRef(DocumentReference? branchRef) async {
+    if (branchRef == null) return null;
+    try {
+      final doc = await branchRef.get();
+      if (doc.exists) {
+        return KiotVietBranch.fromFirestore(
+          doc as DocumentSnapshot<Map<String, dynamic>>,
+        );
+      }
+    } catch (e) {
+      print("Error fetching branch details from reference: $e");
+    }
+    return null;
+  }
+
+  /// Fetches KiotVietUser details from a DocumentReference.
+  Future<KiotVietUser?> getUserFromRef(DocumentReference? userRef) async {
+    if (userRef == null) return null;
+    try {
+      final doc = await userRef.get();
+      if (doc.exists) {
+        return KiotVietUser.fromFirestore(
+          doc as DocumentSnapshot<Map<String, dynamic>>,
+        );
+      }
+    } catch (e) {
+      print("Error fetching KiotViet user details from reference: $e");
+    }
+    return null;
   }
 
   /// Updates the linked KiotViet branch for a specific AppUser.
@@ -121,6 +154,7 @@ class AppUserService {
         displayName: firebaseUser.displayName,
         kiotvietUserRef: kiotvietUserRef,
       );
+      // newUser.role = 'sale'; // Gán vai trò mặc định là 'sale'
       await userDocRef.set(newUser);
     } else {
       // Document exists, just update basic info.

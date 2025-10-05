@@ -1,12 +1,15 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
+import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
+import 'package:phan_phoi_son_gia_si/core/services/app_state_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_customer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/cart_item.dart';
+import '../services/auth_service.dart';
 import '../models/kiotviet_sale_channel.dart';
 import '../models/kiotviet_user.dart';
 
@@ -16,24 +19,45 @@ import '../models/kiotviet_user.dart';
 class TemporaryOrderService with ChangeNotifier {
   static const _storageKey = 'temporary_orders';
   final Uuid _uuid = const Uuid();
+  AppUserService _appUserService;
+  AuthService _authService;
 
   List<TemporaryOrder> _orders = [];
   String? _activeOrderId;
+  bool _isInitialized = false;
 
   List<TemporaryOrder> get orders => _orders;
   String? get activeOrderId => _activeOrderId;
+  bool get isInitialized => _isInitialized;
 
-  TemporaryOrderService() {
+  TemporaryOrderService({
+    required AppUserService appUserService,
+    required AuthService authService,
+  }) : _appUserService = appUserService,
+       _authService = authService {
     loadOrders();
+  }
+
+  /// Updates the service's dependencies when they change.
+  void updateDependencies({
+    required AppUserService appUserService,
+    required AuthService authService,
+  }) {
+    _appUserService = appUserService;
+    _authService = authService;
+    // Could potentially reload orders if user changes, but for now it's simple.
   }
 
   /// Loads orders from persistent storage.
   Future<void> loadOrders() async {
+    _isInitialized = false;
+    notifyListeners(); // Notify UI that we are loading
     final prefs = await SharedPreferences.getInstance();
     final String? ordersJson = prefs.getString(_storageKey);
 
     if (ordersJson != null) {
       final List<dynamic> decoded = jsonDecode(ordersJson);
+      _orders.clear(); // Clear existing orders before loading new ones
       _orders = decoded.map((item) {
         final itemsList = (item['items'] as List)
             .map((cartItem) => CartItem.fromJson(cartItem))
@@ -47,25 +71,29 @@ class TemporaryOrderService with ChangeNotifier {
           description: item['description'],
           createdAt: DateTime.parse(item['createdAt']),
           items: itemsList,
-          customer:
-              customerData != null ? KiotVietCustomer.fromJson(customerData) : null,
+          customer: customerData != null
+              ? KiotVietCustomer.fromJson(customerData)
+              : null,
           seller: sellerData != null ? KiotVietUser.fromJson(sellerData) : null,
           saleChannel: saleChannelData != null
               ? KiotVietSaleChannel.fromJson(saleChannelData)
               : null,
         );
       }).toList();
+    } else {
+      _orders = []; // Ensure list is empty if nothing is loaded
     }
 
-    // If no orders exist, create a default one.
+    // If no orders exist after loading, create a default one.
     if (_orders.isEmpty) {
-      createNewOrder();
+      await _createNewOrderInternal(withSave: false);
     } else {
       // Set the first order as active by default.
       _activeOrderId = _orders.first.id;
     }
 
-    notifyListeners();
+    _isInitialized = true;
+    notifyListeners(); // Notify that initialization is complete and data is ready.
   }
 
   /// Saves the current list of orders to persistent storage.
@@ -88,41 +116,66 @@ class TemporaryOrderService with ChangeNotifier {
 
   /// Creates a new, empty temporary order and sets it as active.
   /// Returns the ID of the newly created order.
-  String? createNewOrder() {
+  Future<String?> createNewOrder() async {
+    final newOrderId = await _createNewOrderInternal(withSave: true);
+    if (newOrderId != null) {
+      notifyListeners();
+    }
+    return newOrderId;
+  }
+
+  /// Internal helper to create a new order without notifying listeners immediately.
+  /// This is useful for batch operations.
+  Future<String?> _createNewOrderInternal({required bool withSave}) async {
     // Enforce a limit of 20 temporary orders.
     if (_orders.length >= 20) {
       // In a real app, you might want to signal this to the UI.
       print('Maximum number of temporary orders (20) reached.');
       return null;
     }
+    // Get the default seller for the new order
+    KiotVietUser? defaultSeller;
+    final currentUser = _authService.currentUser;
+    if (currentUser != null) {
+      final appUser = await _appUserService.getUser(currentUser.uid);
+      if (appUser?.kiotvietUserRef != null) {
+        defaultSeller = await _appUserService.getUserFromRef(
+          appUser!.kiotvietUserRef,
+        );
+      }
+    }
     final newOrder = TemporaryOrder(
       id: _uuid.v4(),
       name: 'Đơn tạm ${_orders.length + 1}',
+      seller: defaultSeller,
     );
     _orders.add(newOrder);
     _activeOrderId = newOrder.id;
-    _saveOrders();
-    notifyListeners();
+
+    if (withSave) {
+      await _saveOrders();
+    }
     return newOrder.id;
   }
 
   /// Deletes an order by its ID.
-  void deleteOrder(String orderId) {
+  Future<void> deleteOrder(String orderId) async {
     _orders.removeWhere((order) => order.id == orderId);
 
-    // If the deleted order was active, select another one or create a new one.
+    // If the deleted order was the active one, we need to select a new active order.
+    // If no orders are left, create a new one to ensure there's always at least one.
     if (_activeOrderId == orderId) {
       if (_orders.isNotEmpty) {
         // Select the last order (newest) instead of the first one.
         _activeOrderId = _orders.last.id;
       } else {
-        createNewOrder(); // This will also set the active ID
+        await createNewOrder(); // This will also set the active ID
         return; // Avoid calling notifyListeners twice
       }
     }
 
-    _saveOrders();
-    notifyListeners();
+    await _saveOrders();
+    notifyListeners(); // Notify after saving changes.
   }
 
   /// Sets the active order.
@@ -145,7 +198,7 @@ class TemporaryOrderService with ChangeNotifier {
       if (_orders.isEmpty) {
         // Tạo một đơn hàng mới và gán ID của nó làm active.
         // createNewOrder bây giờ trả về ID của đơn hàng mới.
-        _activeOrderId = createNewOrder();
+        createNewOrder(); // This will set _activeOrderId internally
       } else {
         // Nếu có đơn hàng nhưng không có đơn nào active, đặt đơn cuối cùng làm active.
         _activeOrderId = _orders.last.id;
@@ -361,29 +414,21 @@ class TemporaryOrderService with ChangeNotifier {
     }
   }
 
-  /// Sets the seller for the active order.
-  void setSellerForActiveOrder(KiotVietUser seller) {
+  /// Sets or removes the seller for the active order.
+  ///
+  /// Pass a [KiotVietUser] object to set the seller, or `null` to remove them.
+  void setSellerForActiveOrder(KiotVietUser? seller) {
     if (_activeOrderId == null) return;
     try {
       final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
-      activeOrder.seller = seller;
-      _saveOrders();
-      notifyListeners();
+      // Only update if the seller has actually changed to avoid unnecessary rebuilds.
+      if (activeOrder.seller?.id != seller?.id) {
+        activeOrder.seller = seller;
+        _saveOrders();
+        notifyListeners();
+      }
     } catch (e) {
       print("Error setting seller for active order: $e");
-    }
-  }
-
-  /// Removes the seller from the active order.
-  void removeSellerFromActiveOrder() {
-    if (_activeOrderId == null) return;
-    try {
-      final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
-      activeOrder.seller = null;
-      _saveOrders();
-      notifyListeners();
-    } catch (e) {
-      print("Error removing seller from active order: $e");
     }
   }
 

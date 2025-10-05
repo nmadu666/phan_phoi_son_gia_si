@@ -8,6 +8,8 @@ class AppUser {
   final String? displayName;
   final DocumentReference? kiotvietBranchRef;
   final DocumentReference? kiotvietUserRef;
+  final String? code; // For filtering data, e.g., customers by salesperson code
+  final String? role; // For role-based access control, e.g., 'admin', 'sale'
 
   AppUser({
     required this.uid,
@@ -15,6 +17,8 @@ class AppUser {
     this.displayName,
     this.kiotvietBranchRef,
     this.kiotvietUserRef,
+    this.code,
+    this.role,
   });
 
   factory AppUser.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -25,6 +29,8 @@ class AppUser {
       displayName: data['displayName'],
       kiotvietBranchRef: data['kiotvietBranchRef'] as DocumentReference?,
       kiotvietUserRef: data['kiotvietUserRef'] as DocumentReference?,
+      code: data['code'],
+      role: data['role'],
     );
   }
 
@@ -34,6 +40,8 @@ class AppUser {
       if (displayName != null) 'displayName': displayName,
       if (kiotvietBranchRef != null) 'kiotvietBranchRef': kiotvietBranchRef,
       if (kiotvietUserRef != null) 'kiotvietUserRef': kiotvietUserRef,
+      if (code != null) 'code': code,
+      if (role != null) 'role': role,
     };
   }
 }

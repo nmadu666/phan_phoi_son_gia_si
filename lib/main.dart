@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
+import 'package:phan_phoi_son_gia_si/core/services/app_state_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/pos_settings_service.dart';
 import 'package:phan_phoi_son_gia_si/features/auth/ui/auth_gate.dart';
@@ -22,8 +23,24 @@ void main() async {
     MultiProvider(
       providers: [
         Provider<AppUserService>(create: (_) => AppUserService()),
+        ChangeNotifierProvider(create: (_) => AppStateService()),
         ChangeNotifierProvider(create: (context) => AuthService()),
-        ChangeNotifierProvider(create: (context) => TemporaryOrderService()),
+        // TemporaryOrderService depends on Auth and AppUser services to set the default seller.
+        ChangeNotifierProxyProvider<AuthService, TemporaryOrderService>(
+          create: (context) => TemporaryOrderService(
+            appUserService: context.read<AppUserService>(),
+            authService: context.read<AuthService>(),
+          ),
+          update: (context, auth, previous) {
+            // When auth state changes, update the dependencies in TemporaryOrderService.
+            // This is useful if a new user logs in.
+            previous?.updateDependencies(
+              appUserService: context.read<AppUserService>(),
+              authService: auth,
+            );
+            return previous!;
+          },
+        ),
         ChangeNotifierProvider(create: (context) => PosSettingsService()),
         // Thêm các provider khác ở đây nếu cần
       ],
