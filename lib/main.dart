@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
+import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/pos_settings_service.dart';
 import 'package:phan_phoi_son_gia_si/features/auth/ui/auth_gate.dart';
@@ -20,6 +21,7 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
+        Provider<AppUserService>(create: (_) => AppUserService()),
         ChangeNotifierProvider(create: (context) => AuthService()),
         ChangeNotifierProvider(create: (context) => TemporaryOrderService()),
         ChangeNotifierProvider(create: (context) => PosSettingsService()),

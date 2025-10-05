@@ -1,9 +1,14 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
+import 'package:phan_phoi_son_gia_si/core/models/kiotviet_customer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:uuid/uuid.dart';
+
+import '../models/cart_item.dart';
+import '../models/kiotviet_sale_channel.dart';
+import '../models/kiotviet_user.dart';
 
 /// A service to manage temporary orders, providing persistence across app sessions.
 ///
@@ -33,12 +38,21 @@ class TemporaryOrderService with ChangeNotifier {
         final itemsList = (item['items'] as List)
             .map((cartItem) => CartItem.fromJson(cartItem))
             .toList();
+        final customerData = item['customer'];
+        final sellerData = item['seller'];
+        final saleChannelData = item['saleChannel'];
         return TemporaryOrder(
           id: item['id'],
           name: item['name'],
           description: item['description'],
           createdAt: DateTime.parse(item['createdAt']),
           items: itemsList,
+          customer:
+              customerData != null ? KiotVietCustomer.fromJson(customerData) : null,
+          seller: sellerData != null ? KiotVietUser.fromJson(sellerData) : null,
+          saleChannel: saleChannelData != null
+              ? KiotVietSaleChannel.fromJson(saleChannelData)
+              : null,
         );
       }).toList();
     }
@@ -64,6 +78,9 @@ class TemporaryOrderService with ChangeNotifier {
         'description': order.description,
         'createdAt': order.createdAt.toIso8601String(),
         'items': order.items.map((item) => item.toJson()).toList(),
+        'customer': order.customer?.toJson(),
+        'seller': order.seller?.toJson(),
+        'saleChannel': order.saleChannel?.toJson(),
       };
     }).toList();
     await prefs.setString(_storageKey, jsonEncode(ordersToSave));
@@ -316,5 +333,70 @@ class TemporaryOrderService with ChangeNotifier {
 
     _saveOrders();
     notifyListeners();
+  }
+
+  /// Sets the customer for the active order.
+  void setCustomerForActiveOrder(KiotVietCustomer customer) {
+    if (_activeOrderId == null) return;
+    try {
+      final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+      activeOrder.customer = customer;
+      _saveOrders();
+      notifyListeners();
+    } catch (e) {
+      print("Error setting customer for active order: $e");
+    }
+  }
+
+  /// Removes the customer from the active order.
+  void removeCustomerFromActiveOrder() {
+    if (_activeOrderId == null) return;
+    try {
+      final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+      activeOrder.customer = null;
+      _saveOrders();
+      notifyListeners();
+    } catch (e) {
+      print("Error removing customer from active order: $e");
+    }
+  }
+
+  /// Sets the seller for the active order.
+  void setSellerForActiveOrder(KiotVietUser seller) {
+    if (_activeOrderId == null) return;
+    try {
+      final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+      activeOrder.seller = seller;
+      _saveOrders();
+      notifyListeners();
+    } catch (e) {
+      print("Error setting seller for active order: $e");
+    }
+  }
+
+  /// Removes the seller from the active order.
+  void removeSellerFromActiveOrder() {
+    if (_activeOrderId == null) return;
+    try {
+      final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+      activeOrder.seller = null;
+      _saveOrders();
+      notifyListeners();
+    } catch (e) {
+      print("Error removing seller from active order: $e");
+    }
+  }
+
+  /// Sets the sale channel for the active order.
+  void setSaleChannelForActiveOrder(KiotVietSaleChannel channel) {
+    if (_activeOrderId == null) return;
+    try {
+      final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+      activeOrder.saleChannel = channel;
+      _saveOrders();
+      notifyListeners();
+    } catch (e) {
+      print("Error setting sale channel for active order: $e");
+    }
   }
 }

@@ -6,6 +6,10 @@
 
 import { refreshKiotVietAccessToken } from './api/kiotviet';
 import { syncKiotVietProductsToFirestore } from './jobs/syncProducts';
+import { syncKiotVietCustomersToFirestore } from './jobs/syncCustomers';
+import { syncKiotVietUsersToFirestore } from './jobs/syncUsers';
+import { syncKiotVietSaleChannelsToFirestore } from './jobs/syncSaleChannels';
+import { syncKiotVietBranchesToFirestore } from './jobs/syncBranches';
 import { setScriptProperty } from './core/properties';
 
 /**
@@ -51,3 +55,15 @@ function _MANUAL_SETUP_() {
 
 // Expose the main job for syncing products
 (global as any).syncKiotVietProductsToFirestore = syncKiotVietProductsToFirestore;
+
+// Expose the job for syncing customers
+(global as any).syncKiotVietCustomersToFirestore = syncKiotVietCustomersToFirestore;
+
+// Expose the job for syncing users
+(global as any).syncKiotVietUsersToFirestore = syncKiotVietUsersToFirestore;
+
+// Expose the job for syncing sale channels
+(global as any).syncKiotVietSaleChannelsToFirestore = syncKiotVietSaleChannelsToFirestore;
+
+// Expose the job for syncing branches
+(global as any).syncKiotVietBranchesToFirestore = syncKiotVietBranchesToFirestore;

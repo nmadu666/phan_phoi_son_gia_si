@@ -1,13 +1,25 @@
 // --- Assign functions to the global object ---
 // This makes them visible and runnable in the Google Apps Script editor.
 // Expose the setup function
-function setupScriptProperties() {
+function _MANUAL_SETUP_() {
 }
 // Expose the function to manually refresh the KiotViet access token
 function refreshKiotVietAccessToken() {
 }
 // Expose the main job for syncing products
 function syncKiotVietProductsToFirestore() {
+}
+// Expose the job for syncing customers
+function syncKiotVietCustomersToFirestore() {
+}
+// Expose the job for syncing users
+function syncKiotVietUsersToFirestore() {
+}
+// Expose the job for syncing sale channels
+function syncKiotVietSaleChannelsToFirestore() {
+}
+// Expose the job for syncing branches
+function syncKiotVietBranchesToFirestore() {
 }/******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
@@ -449,6 +461,151 @@ function generateKeywordsFromText(text) {
 
 /***/ }),
 
+/***/ "./src/jobs/syncBranches.ts":
+/*!**********************************!*\
+  !*** ./src/jobs/syncBranches.ts ***!
+  \**********************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   syncKiotVietBranchesToFirestore: () => (/* binding */ syncKiotVietBranchesToFirestore)
+/* harmony export */ });
+/* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/kiotviet */ "./src/api/kiotviet.ts");
+/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/**
+ * @fileoverview Contains the job for syncing branches from KiotViet to Firestore.
+ */
+
+
+/**
+ * Parses a date string from KiotViet API format (e.g., "/Date(1609459200000+0700)/")
+ * into a JavaScript Date object.
+ * @param {string | null | undefined} kiotVietDate The date string from KiotViet.
+ * @returns {Date | null} A Date object or null if parsing fails.
+ */
+function parseKiotVietDate(kiotVietDate) {
+    if (!kiotVietDate || typeof kiotVietDate !== 'string') {
+        return null;
+    }
+    const match = kiotVietDate.match(/\/Date\((\d+).*\)\//);
+    if (match && match[1]) {
+        return new Date(parseInt(match[1], 10));
+    }
+    return null;
+}
+/**
+ * Fetches all branches from the KiotViet API and syncs them to the 'kiotviet_branches'
+ * collection in Firestore.
+ */
+function syncKiotVietBranchesToFirestore() {
+    const endpoint = '/branches';
+    const collectionName = 'kiotviet_branches';
+    Logger.log('Starting KiotViet Branches to Firestore synchronization process.');
+    try {
+        const allBranches = (0,_api_kiotviet__WEBPACK_IMPORTED_MODULE_0__.fetchAllKiotVietData)(endpoint);
+        if (allBranches && allBranches.length > 0) {
+            const branchesToSync = allBranches.map(branch => ({
+                ...branch,
+                createdDate: parseKiotVietDate(branch.createdDate),
+                modifiedDate: parseKiotVietDate(branch.modifiedDate),
+            }));
+            (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__.batchWriteToFirestore)(collectionName, branchesToSync);
+        }
+        else {
+            Logger.log('No branches found to sync.');
+        }
+    }
+    catch (e) {
+        Logger.log(`An error occurred during the branch sync process: ${e.toString()}\n${e.stack}`);
+    }
+}
+
+
+/***/ }),
+
+/***/ "./src/jobs/syncCustomers.ts":
+/*!***********************************!*\
+  !*** ./src/jobs/syncCustomers.ts ***!
+  \***********************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   syncKiotVietCustomersToFirestore: () => (/* binding */ syncKiotVietCustomersToFirestore)
+/* harmony export */ });
+/* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/kiotviet */ "./src/api/kiotviet.ts");
+/* harmony import */ var _core_text__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../core/text */ "./src/core/text.ts");
+/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/**
+ * @fileoverview Contains the job for syncing customers from KiotViet to Firestore.
+ */
+
+
+
+/**
+ * Parses a date string from KiotViet API format (e.g., "/Date(1609459200000+0700)/")
+ * into a JavaScript Date object.
+ * @param {string | null | undefined} kiotVietDate The date string from KiotViet.
+ * @returns {Date | null} A Date object or null if parsing fails.
+ */
+function parseKiotVietDate(kiotVietDate) {
+    if (!kiotVietDate || typeof kiotVietDate !== 'string') {
+        return null;
+    }
+    const match = kiotVietDate.match(/\/Date\((\d+).*\)\//);
+    if (match && match[1]) {
+        return new Date(parseInt(match[1], 10));
+    }
+    return null;
+}
+/**
+ * Fetches all customers from the KiotViet API and syncs them to the 'kiotviet_customers'
+ * collection in Firestore, enriching them with search keywords.
+ */
+function syncKiotVietCustomersToFirestore() {
+    const endpoint = '/customers';
+    const collectionName = 'kiotviet_customers';
+    Logger.log('Starting KiotViet Customers to Firestore synchronization process.');
+    try {
+        const allCustomers = (0,_api_kiotviet__WEBPACK_IMPORTED_MODULE_0__.fetchAllKiotVietData)(endpoint);
+        if (allCustomers && allCustomers.length > 0) {
+            const customersToSync = allCustomers.map(customer => {
+                const nameKeywords = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateKeywordsFromText)(customer.name);
+                const codeKeywords = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateKeywordsFromText)(customer.code);
+                const contactNumberKeywords = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateKeywordsFromText)(customer.contactNumber);
+                const allKeywords = new Set([
+                    ...nameKeywords,
+                    ...codeKeywords,
+                    ...contactNumberKeywords,
+                ]);
+                const syncedCustomer = {
+                    ...customer,
+                    search_keywords: Array.from(allKeywords),
+                };
+                // Only add date fields if they are valid
+                const createdDate = parseKiotVietDate(customer.createdDate);
+                if (createdDate)
+                    syncedCustomer.createdDate = createdDate;
+                const birthDate = parseKiotVietDate(customer.birthDate);
+                if (birthDate)
+                    syncedCustomer.birthDate = birthDate;
+                return syncedCustomer;
+            });
+            (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_2__.batchWriteToFirestore)(collectionName, customersToSync);
+        }
+        else {
+            Logger.log('No customers found to sync.');
+        }
+    }
+    catch (e) {
+        Logger.log(`An error occurred during the customer sync process: ${e.toString()}\n${e.stack}`);
+    }
+}
+
+
+/***/ }),
+
 /***/ "./src/jobs/syncProducts.ts":
 /*!**********************************!*\
   !*** ./src/jobs/syncProducts.ts ***!
@@ -500,6 +657,116 @@ function syncKiotVietProductsToFirestore() {
     }
     catch (e) {
         Logger.log(`An error occurred during the sync process: ${e.toString()}\n${e.stack}`);
+    }
+}
+
+
+/***/ }),
+
+/***/ "./src/jobs/syncSaleChannels.ts":
+/*!**************************************!*\
+  !*** ./src/jobs/syncSaleChannels.ts ***!
+  \**************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   syncKiotVietSaleChannelsToFirestore: () => (/* binding */ syncKiotVietSaleChannelsToFirestore)
+/* harmony export */ });
+/* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/kiotviet */ "./src/api/kiotviet.ts");
+/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/**
+ * @fileoverview Contains the job for syncing sale channels from KiotViet to Firestore.
+ */
+
+
+/**
+ * Fetches all sale channels from the KiotViet API and syncs them to the 'kiotviet_sale_channels'
+ * collection in Firestore.
+ */
+function syncKiotVietSaleChannelsToFirestore() {
+    const endpoint = '/salechannel';
+    const collectionName = 'kiotviet_sale_channels';
+    Logger.log('Starting KiotViet Sale Channels to Firestore synchronization process.');
+    try {
+        const allSaleChannels = (0,_api_kiotviet__WEBPACK_IMPORTED_MODULE_0__.fetchAllKiotVietData)(endpoint);
+        if (allSaleChannels && allSaleChannels.length > 0) {
+            (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__.batchWriteToFirestore)(collectionName, allSaleChannels);
+        }
+        else {
+            Logger.log('No sale channels found to sync.');
+        }
+    }
+    catch (e) {
+        Logger.log(`An error occurred during the sale channel sync process: ${e.toString()}\n${e.stack}`);
+    }
+}
+
+
+/***/ }),
+
+/***/ "./src/jobs/syncUsers.ts":
+/*!*******************************!*\
+  !*** ./src/jobs/syncUsers.ts ***!
+  \*******************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   syncKiotVietUsersToFirestore: () => (/* binding */ syncKiotVietUsersToFirestore)
+/* harmony export */ });
+/* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/kiotviet */ "./src/api/kiotviet.ts");
+/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/**
+ * @fileoverview Contains the job for syncing users (employees) from KiotViet to Firestore.
+ */
+
+
+/**
+ * Parses a date string from KiotViet API format (e.g., "/Date(1609459200000+0700)/")
+ * into a JavaScript Date object.
+ * @param {string | null | undefined} kiotVietDate The date string from KiotViet.
+ * @returns {Date | null} A Date object or null if parsing fails.
+ */
+function parseKiotVietDate(kiotVietDate) {
+    if (!kiotVietDate || typeof kiotVietDate !== 'string') {
+        return null;
+    }
+    const match = kiotVietDate.match(/\/Date\((\d+).*\)\//);
+    if (match && match[1]) {
+        return new Date(parseInt(match[1], 10));
+    }
+    return null;
+}
+/**
+ * Fetches all users from the KiotViet API and syncs them to the 'kiotviet_users'
+ * collection in Firestore.
+ */
+function syncKiotVietUsersToFirestore() {
+    const endpoint = '/users';
+    const collectionName = 'kiotviet_users';
+    Logger.log('Starting KiotViet Users to Firestore synchronization process.');
+    try {
+        const allUsers = (0,_api_kiotviet__WEBPACK_IMPORTED_MODULE_0__.fetchAllKiotVietData)(endpoint);
+        if (allUsers && allUsers.length > 0) {
+            const usersToSync = allUsers.map(user => {
+                const syncedUser = { ...user };
+                const createdDate = parseKiotVietDate(user.createdDate);
+                if (createdDate)
+                    syncedUser.createdDate = createdDate;
+                const birthDate = parseKiotVietDate(user.birthDate);
+                if (birthDate)
+                    syncedUser.birthDate = birthDate;
+                return syncedUser;
+            });
+            (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__.batchWriteToFirestore)(collectionName, usersToSync);
+        }
+        else {
+            Logger.log('No users found to sync.');
+        }
+    }
+    catch (e) {
+        Logger.log(`An error occurred during the user sync process: ${e.toString()}\n${e.stack}`);
     }
 }
 
@@ -583,7 +850,11 @@ var __webpack_exports__ = {};
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./api/kiotviet */ "./src/api/kiotviet.ts");
 /* harmony import */ var _jobs_syncProducts__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./jobs/syncProducts */ "./src/jobs/syncProducts.ts");
-/* harmony import */ var _core_properties__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./core/properties */ "./src/core/properties.ts");
+/* harmony import */ var _jobs_syncCustomers__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./jobs/syncCustomers */ "./src/jobs/syncCustomers.ts");
+/* harmony import */ var _jobs_syncUsers__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./jobs/syncUsers */ "./src/jobs/syncUsers.ts");
+/* harmony import */ var _jobs_syncSaleChannels__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./jobs/syncSaleChannels */ "./src/jobs/syncSaleChannels.ts");
+/* harmony import */ var _jobs_syncBranches__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ./jobs/syncBranches */ "./src/jobs/syncBranches.ts");
+/* harmony import */ var _core_properties__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ./core/properties */ "./src/core/properties.ts");
 /**
  * @fileoverview This is the main entry point for the Webpack bundle.
  * All functions that need to be globally available in the Google Apps Script
@@ -592,49 +863,56 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
+
+
+
+
 /**
- * A setup function to configure all necessary script properties.
- * Run this function once from the Google Apps Script editor to initialize the script.
- * It will prompt you for each required value.
+ * ===============================================================================
+ * ONE-TIME MANUAL SETUP FUNCTION
+ * ===============================================================================
+ * To configure the script, follow these steps:
+ * 1. Fill in your secret values in the `propertiesToSet` object below.
+ * 2. Deploy your code (`npm run deploy`).
+ * 3. In the Google Apps Script editor, select this function (`_MANUAL_SETUP_`) and run it ONCE.
+ * 4. (Recommended) After running it successfully, delete your secret values from the code below for security.
  */
-function setupScriptProperties() {
-    const ui = SpreadsheetApp.getUi();
-    const properties = [
-        'kiotviet_client_id',
-        'kiotviet_client_secret',
-        'kiotviet_retailer',
-        'firestore_client_email',
-        'firestore_private_key',
-        'firestore_project_id',
-    ];
-    ui.alert('Script Properties Setup', 'You will be prompted for 6 values. If you want to keep an existing value, press Cancel.', ui.ButtonSet.OK);
-    properties.forEach(key => {
-        const response = ui.prompt(`Enter value for "${key}"`, `Leave blank and press OK to keep the current value.`, ui.ButtonSet.OK_CANCEL);
-        // Process the response
-        if (response.getSelectedButton() == ui.Button.OK) {
-            const value = response.getResponseText();
-            if (value) { // Only set if user entered something
-                (0,_core_properties__WEBPACK_IMPORTED_MODULE_2__.setScriptProperty)(key, value);
-                Logger.log(`Property "${key}" was set.`);
-            }
-            else {
-                Logger.log(`Property "${key}" was not changed.`);
-            }
+function _MANUAL_SETUP_() {
+    const propertiesToSet = {
+        kiotviet_client_id: 'YOUR_CLIENT_ID_HERE', // <--- FILL IN
+        kiotviet_client_secret: 'YOUR_CLIENT_SECRET_HERE', // <--- FILL IN
+        kiotviet_retailer: 'YOUR_RETAILER_HERE', // <--- FILL IN
+        firestore_client_email: 'YOUR_FIREBASE_CLIENT_EMAIL_HERE', // <--- FILL IN
+        firestore_private_key: '-----BEGIN PRIVATE KEY-----\nYOUR_FIREBASE_PRIVATE_KEY_HERE\n-----END PRIVATE KEY-----', // <--- FILL IN
+        firestore_project_id: 'YOUR_FIREBASE_PROJECT_ID_HERE', // <--- FILL IN
+    };
+    for (const [key, value] of Object.entries(propertiesToSet)) {
+        if (value.includes('YOUR_')) {
+            Logger.log(`WARNING: Property "${key}" still contains a placeholder value. It was NOT set.`);
         }
         else {
-            Logger.log(`Cancelled setting property for "${key}".`);
+            (0,_core_properties__WEBPACK_IMPORTED_MODULE_6__.setScriptProperty)(key, value);
+            Logger.log(`Property "${key}" was set successfully.`);
         }
-    });
-    ui.alert('Setup Complete', 'All properties have been processed.', ui.ButtonSet.OK);
+    }
+    Logger.log('Manual setup complete. Please remove your secrets from the `_MANUAL_SETUP_` function.');
 }
 // --- Assign functions to the global object ---
 // This makes them visible and runnable in the Google Apps Script editor.
 // Expose the setup function
-__webpack_require__.g.setupScriptProperties = setupScriptProperties;
+__webpack_require__.g._MANUAL_SETUP_ = _MANUAL_SETUP_;
 // Expose the function to manually refresh the KiotViet access token
 __webpack_require__.g.refreshKiotVietAccessToken = _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__.refreshKiotVietAccessToken;
 // Expose the main job for syncing products
 __webpack_require__.g.syncKiotVietProductsToFirestore = _jobs_syncProducts__WEBPACK_IMPORTED_MODULE_1__.syncKiotVietProductsToFirestore;
+// Expose the job for syncing customers
+__webpack_require__.g.syncKiotVietCustomersToFirestore = _jobs_syncCustomers__WEBPACK_IMPORTED_MODULE_2__.syncKiotVietCustomersToFirestore;
+// Expose the job for syncing users
+__webpack_require__.g.syncKiotVietUsersToFirestore = _jobs_syncUsers__WEBPACK_IMPORTED_MODULE_3__.syncKiotVietUsersToFirestore;
+// Expose the job for syncing sale channels
+__webpack_require__.g.syncKiotVietSaleChannelsToFirestore = _jobs_syncSaleChannels__WEBPACK_IMPORTED_MODULE_4__.syncKiotVietSaleChannelsToFirestore;
+// Expose the job for syncing branches
+__webpack_require__.g.syncKiotVietBranchesToFirestore = _jobs_syncBranches__WEBPACK_IMPORTED_MODULE_5__.syncKiotVietBranchesToFirestore;
 
 })();
 

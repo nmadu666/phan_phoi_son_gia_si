@@ -4,6 +4,7 @@ import 'package:phan_phoi_son_gia_si/core/services/pos_settings_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/models/cart_item.dart';
 import '../../../../core/models/pos_settings.dart';
 
 /// A widget that displays the list of items for the currently active temporary order.

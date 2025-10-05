@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/search_bar_panel.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/cart_items_list.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/branch_selector.dart';
+
+import 'customer_checkout_panel.dart';
 
 /// Defines the types of sales modes available in the bottom navigation bar.
 enum SaleType {
@@ -73,15 +76,7 @@ class _DesktopLayoutState extends State<DesktopLayout> {
               ],
             ),
             // Right side: Branch selector
-            Row(
-              children: [
-                const Icon(Icons.storefront_outlined, size: 20),
-                const SizedBox(width: 8),
-                // Placeholder for a DropdownButton
-                const Text('Chi nhánh Trung tâm'),
-                const Icon(Icons.arrow_drop_down),
-              ],
-            ),
+            const BranchSelector(),
           ],
         ),
       ),
@@ -150,9 +145,7 @@ class _DeliverySaleView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // 1. The list of items in the cart.
-                const Expanded(
-                  child: CartItemsList(),
-                ),
+                const Expanded(child: CartItemsList()),
                 const SizedBox(height: 8),
                 // 2. Description and Checkout are now in a Row
                 Row(
@@ -242,9 +235,7 @@ class _NormalSaleView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: const [
                 // 1. The list of items in the cart.
-                Expanded(
-                  child: CartItemsList(),
-                ),
+                Expanded(child: CartItemsList()),
                 SizedBox(height: 8),
                 // 2. The resizable description text field at the bottom.
                 TextField(
@@ -309,9 +300,7 @@ class _QuickSaleView extends StatelessWidget {
                 // It's split into the item list and a description box at the bottom.
 
                 // 1. The list of items in the cart.
-                Expanded(
-                  child: CartItemsList(),
-                ),
+                Expanded(child: CartItemsList()),
 
                 SizedBox(height: 8),
 
@@ -334,9 +323,7 @@ class _QuickSaleView extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(8.0),
             // Placeholder for Customer Info and Checkout/Payment Panel
-            child: Placeholder(
-              child: Center(child: Text('Customer & Checkout Panel')),
-            ),
+            child: CustomerCheckoutPanel(),
           ),
         ),
       ],

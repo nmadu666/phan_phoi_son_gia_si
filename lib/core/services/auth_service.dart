@@ -1,12 +1,15 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
 
 class AuthService with ChangeNotifier {
   final FirebaseAuth _firebaseAuth;
+  final AppUserService _appUserService;
 
   // Constructor để có thể inject dependency, hữu ích cho việc test
   AuthService({FirebaseAuth? firebaseAuth})
-    : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance {
+      : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
+        _appUserService = AppUserService() {
     if (kDebugMode) {
       // Tự động đăng nhập khi ở chế độ debug
       // THAY THẾ email và password bằng tài khoản debug của bạn
@@ -26,10 +29,13 @@ class AuthService with ChangeNotifier {
     required String password,
   }) async {
     try {
-      await _firebaseAuth.signInWithEmailAndPassword(
+      final userCredential = await _firebaseAuth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
+      if (userCredential.user != null) {
+        await _appUserService.createOrUpdateUserDocument(userCredential.user!);
+      }
       return null; // Thành công
     } on FirebaseAuthException catch (e) {
       // Trả về thông báo lỗi thân thiện với người dùng

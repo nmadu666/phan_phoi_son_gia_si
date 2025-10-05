@@ -1,78 +1,85 @@
-Dựa trên thông tin từ các nguồn về việc tích hợp API KiotViet, quá trình lấy **Access Token** được thực hiện thông qua cơ chế xác thực **OAuth 2.0** bằng cách gửi một yêu cầu **POST** đến Endpoint Token của KiotViet.
+Dựa trên các nguồn thông tin được cung cấp, dưới đây là danh sách các nhóm API công khai (**Public API**) của KiotViet được sử dụng để tích hợp và trao đổi dữ liệu (đọc/ghi):
 
-Access Token này là cần thiết để truy cập vào hầu hết các API khác của KiotViet (trừ API lấy token và Authentication Code).
+API Public của KiotViet được phát triển để hỗ trợ việc tích hợp và trao đổi dữ liệu giữa KiotViet với các nền tảng khác như website, thương mại điện tử, CRM....
 
-Dưới đây là hướng dẫn chi tiết các bước thực hiện:
+---
 
-## I. Các thông tin cần thiết
+### **Danh sách các nhóm API KiotViet**
 
-Để lấy Access Token, bạn cần có hai thông tin cấu hình quan trọng mà KiotViet API xác thực dựa trên đó: **ClientId** và **Mã bảo mật (client\_secret)**.
+#### **1. Xác thực (Authentication)**
 
-Các thông tin cấu hình đã được đề cập trong nguồn ví dụ bao gồm:
+KiotViet API xác thực dựa trên cơ chế **OAuth 2.0**.
 
-| Tên cấu hình | Giá trị | Nguồn |
+*   **Lấy thông tin Access Token:** Được sử dụng để truy cập các API khác.
+    *   Phương thức và URL: `POST https://id.kiotviet.vn/connect/token`.
+    *   Thông tin cần thiết để lấy Access Token bao gồm **Retailer**, **client\_id**, và **client\_secret**.
+
+#### **2. Quản lý Hàng hóa và Danh mục**
+
+| Đối tượng | Chức năng (APIs) | Tham chiếu |
 | :--- | :--- | :--- |
-| **Retailer** (Tên gian hàng) | `phanphoisongiasi` | |
-| **client\_id** | `ca70d033-6a44-4ad1-bbec-d142616ede22` | |
-| **client\_secret** | `EFDECA4A7AC13D65ED054DA26533F7016DDB6C9C` | |
+| **Hàng hóa** (`/products`) | Lấy danh sách hàng hóa; Lấy chi tiết hàng hóa (theo ID hoặc Code); Thêm mới hàng hóa; Cập nhật hàng hóa; Xóa hàng hóa. |,,,, |
+| **Nhóm hàng** (`/categories`) | Lấy danh sách nhóm hàng (tối đa 3 cấp); Lấy chi tiết nhóm hàng; Thêm mới nhóm hàng; Cập nhật nhóm hàng; Xóa nhóm hàng. |,,,, |
+| **Tồn kho** (`/productOnHands`) | Lấy danh sách tồn kho hàng hóa. | |
+| **Thuộc tính sản phẩm** (`/attributes/allwithdistinctvalue`) | Lấy toàn bộ thông tin thuộc tính của tất cả các sản phẩm. | |
+| **Thương hiệu** (`/trademark`) | Lấy danh sách thương hiệu của hàng hóa. | |
+| **Thao tác hàng loạt (Bulk)** | Thêm mới danh sách hàng hóa (`/listaddproducts`); Cập nhật danh sách hàng hóa (`/listupdatedproducts`). |, |
 
-Bạn có thể tìm thấy thông tin ClientId và Mã bảo mật bằng cách truy cập vào **"Thiết lập cửa hàng"** bằng tài khoản admin và chọn **"Thiết lập kết nối API"**.
+#### **3. Quản lý Giao dịch Bán hàng (Đơn hàng & Hóa đơn)**
 
-## II. Thực hiện gọi API để lấy Access Token
-
-Bạn sẽ thực hiện một yêu cầu **POST** đến Endpoint Token của KiotViet:
-
-### 1. Endpoint và Phương thức
-
-*   **Phương thức:** `POST`
-*   **URL (Token Endpoint):** `https://id.kiotviet.vn/connect/token`
-
-### 2. Header (Tiêu đề Request)
-
-Yêu cầu cần có Header để chỉ định định dạng dữ liệu gửi đi:
-
-| Header | Giá trị |
-| :--- | :--- |
-| **Content-Type** | `application/x-www-form-urlencoded` |
-
-### 3. Body (Dữ liệu Request)
-
-Yêu cầu cần truyền các tham số sau trong phần Body (dạng form URL-encoded):
-
-| Tham số | Giá trị | Mục đích |
+| Đối tượng | Chức năng (APIs) | Tham chiếu |
 | :--- | :--- | :--- |
-| **scopes** | `PublicApi.Access` | Phạm vi truy cập (chỉ định bạn muốn truy cập Public API). |
-| **grant\_type** | `client_credentials` | Thông tin truy cập dạng token. |
-| **client\_id** | `{ClientId của bạn}` | Client ID đã lấy từ cấu hình. |
-| **client\_secret** | `{Client Secret của bạn}` | Mã bảo mật đã lấy từ cấu hình. |
+| **Đặt hàng** (`/orders`) | Lấy danh sách đặt hàng; Lấy chi tiết đặt hàng (theo ID hoặc Code); Thêm mới đặt hàng; Cập nhật đặt hàng; Xóa đặt hàng. |,,,, |
+| **Hóa đơn** (`/invoices`) | Lấy danh sách hóa đơn; Lấy chi tiết hóa đơn (theo ID hoặc Code); Thêm mới hóa đơn; Cập nhật hóa đơn; Xóa hóa đơn. |,,,, |
+| **Trả hàng** (`/returns`) | Lấy danh sách trả hàng; Lấy chi tiết phiếu trả hàng. |, |
+| **Kênh bán hàng** (`/salechannel`) | Lấy danh sách kênh bán hàng. | |
 
-**Ví dụ Body mẫu được cung cấp:**
+#### **4. Quản lý Khách hàng (Customers)**
 
-```
-scopes=PublicApi.Access&grant_type=client_credentials&client_id=e4fe37ab-5d10-4919-bf59-d9a568456d0b&client_secret=01A3703244752CFF6350A801F900742179C7CCDA
-```
+| Đối tượng | Chức năng (APIs) | Tham chiếu |
+| :--- | :--- | :--- |
+| **Khách hàng** (`/customers`) | Lấy danh sách khách hàng; Lấy chi tiết khách hàng (theo ID hoặc Code); Thêm mới khách hàng; Cập nhật khách hàng; Xóa khách hàng. |,,,, |
+| **Nhóm khách hàng** (`/customers/group`) | Lấy danh sách nhóm khách hàng. | |
+| **Thao tác hàng loạt (Bulk)** | Thêm mới danh sách khách hàng (`/listaddcutomers`); Cập nhật danh sách khách hàng (`/listupdatecustomers`). |, |
 
-### 4. Response (Phản hồi)
+#### **5. Quản lý Nhập hàng và Nhà cung cấp**
 
-Nếu yêu cầu thành công, API sẽ trả về phản hồi JSON chứa Access Token và thời gian hết hạn:
+| Đối tượng | Chức năng (APIs) | Tham chiếu |
+| :--- | :--- | :--- |
+| **Phiếu nhập hàng** (`/purchaseorders`) | Lấy danh sách nhập hàng; Lấy chi tiết nhập hàng; Thêm mới nhập hàng; Cập nhật nhập hàng; Xóa nhập hàng. |,,,, |
+| **Đặt hàng nhập** (`/ordersuppliers`) | Lấy danh sách đặt hàng nhập; Lấy chi tiết đặt hàng nhập. |, |
+| **Nhà cung cấp** (`/suppliers`) | Lấy danh sách nhà cung cấp; Lấy chi tiết nhà cung cấp (theo ID hoặc Code). |, |
 
-```json
-{
-"access_token": "...", // Mã Access Token bạn cần
-"expires_in": 86400, // Thời gian hết hạn tính bằng giây (ví dụ: 86400 giây = 24 giờ)
-"token_type": "Bearer" // Loại token
-}
-```
+#### **6. Quản lý Hệ thống và Nội bộ (Phụ trợ)**
 
-## III. Sử dụng Access Token
+Các API này thường được gọi là "Các API phụ trợ" và bao gồm:
 
-Sau khi có được `access_token`, bạn phải sử dụng mã này trong **Header** của tất cả các yêu cầu API KiotViet khác.
+*   **Chi nhánh** (`/branches`): Lấy danh sách toàn bộ chi nhánh.
+*   **Người dùng** (`/users`): Lấy danh sách toàn bộ người dùng.
+*   **Tài khoản ngân hàng** (`/BankAccounts`): Lấy danh sách toàn bộ tài khoản ngân hàng.
+*   **Thu khác** (`/surchages`): Lấy danh sách thu khác; Thêm mới thu khác; Cập nhật thu khác; Ngừng hoạt động thu khác.
+*   **Sổ quỹ** (`/cashflow`): Lấy danh sách phiếu thu chi trong sổ quỹ; Thanh toán hóa đơn.
+*   **Location** (`/locations`): Trả về thông tin location (ví dụ: tỉnh/thành phố).
+*   **Thiết lập cửa hàng** (`/settings`): Trả về danh sách thiết lập cửa hàng.
+*   **Chuyển hàng** (`/transfers`): Lấy danh sách chuyển hàng; Lấy chi tiết; Thêm mới; Cập nhật; Xóa phiếu chuyển hàng.
 
-Header cho các API tiếp theo sẽ bao gồm:
+#### **7. Khuyến mại và Giá cả**
 
-1.  **"Retailer":** Tên gian hàng (ví dụ: `phanphoisongiasi`).
-2.  **"Authorization":** `Bearer {Mã Access Token}`.
+*   **Bảng giá** (`/pricebooks`): Lấy danh sách bảng giá; Lấy chi tiết bảng giá; Cập nhật chi tiết bảng giá.
+*   **Voucher** (`/vouchercampaign`, `/voucher`): Lấy danh sách đợt phát hành voucher; Lấy danh sách voucher trong đợt phát hành; Tạo mới voucher; Phát hành voucher (tặng); Hủy voucher.
+*   **Coupon** (`/coupons/setused`): Cập nhật trạng thái Coupon về "Đã sử dụng".
 
-**Ví dụ về Header Authorization:**
+#### **8. Webhook**
 
-`Authorization: Bearer eyJhbGciOiJSU0EtT0FFUCIsImVu……………………..Z31gSjq6REOpMUj3hBYBojekzw`
+Webhook là cơ chế cho phép KiotViet chủ động gọi đến server bên thứ ba khi có thay đổi xảy ra (mô hình data push).
+
+*   **Quản lý Webhook:** Đăng ký Webhook; Hủy đăng ký Webhook; Lấy danh sách webhook; Lấy chi tiết webhook.
+*   **Sự kiện Webhook (ví dụ):**
+    *   `customer.update` và `customer.delete` (Khách hàng).
+    *   `product.update` và `product.delete` (Hàng hóa).
+    *   `invoice.update` (Hóa đơn).
+    *   `pricebook.update` và `pricebook.delete` (Bảng giá).
+    *   `stock.update` (Tồn kho).
+    *   `order.update` (Đặt hàng).
+    *   `category.update` và `category.delete` (Danh mục hàng hóa).
+    *   `branch.update` và `branch.delete` (Chi nhánh).

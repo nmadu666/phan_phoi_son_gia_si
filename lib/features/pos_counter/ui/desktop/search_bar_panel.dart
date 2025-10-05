@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/widgets.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
@@ -8,6 +7,7 @@ import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart'
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_product_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/pos_settings_dialog.dart';
+import 'package:phan_phoi_son_gia_si/features/user_management/ui/user_management_screen.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 
@@ -33,6 +33,7 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
   final FocusNode _searchFocusNode = FocusNode();
   final ScrollController _suggestionsScrollController = ScrollController();
   final OverlayPortalController _portalController = OverlayPortalController();
+  final LayerLink _layerLink = LayerLink();
   bool _isProgrammaticClear = false;
 
   @override
@@ -212,54 +213,58 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
             // --- Search Bar ---
             SizedBox(
               width: 400,
-              child: OverlayPortal(
-                controller: _portalController,
-                overlayChildBuilder: (BuildContext context) {
-                  return Positioned(
-                    top: 80, // Vị trí của AppBar
-                    left: 200, // Căn chỉnh vị trí theo SearchBar
-                    child: Material(
-                      elevation: 4.0,
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        width: 400,
-                        constraints: const BoxConstraints(maxHeight: 400),
-                        child: _buildSuggestionsList(),
+              child: CompositedTransformTarget(
+                link: _layerLink,
+                child: OverlayPortal(
+                  controller: _portalController,
+                  overlayChildBuilder: (BuildContext context) {
+                    return CompositedTransformFollower(
+                      link: _layerLink,
+                      showWhenUnlinked: false,
+                      offset: const Offset(0.0, 56.0), // Adjust vertical offset
+                      child: Material(
+                        elevation: 4.0,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          width: 400,
+                          constraints: const BoxConstraints(maxHeight: 400),
+                          child: _buildSuggestionsList(),
+                        ),
                       ),
-                    ),
-                  );
-                },
-                child: TextField(
-                  focusNode: _searchFocusNode,
-                  controller: _searchController,
-                  style: const TextStyle(height: 1.2),
-                  onTap: () {
-                    if (!_portalController.isShowing) {
-                      _portalController.show();
-                      _fetchInitialData(_searchController.text);
-                    }
+                    );
                   },
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search),
-                    hintText: 'Tìm theo mã, tên sản phẩm (F3)',
-                    border: const OutlineInputBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(30.0)),
-                      borderSide: BorderSide.none,
-                    ),
-                    filled: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16.0,
-                    ),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () {
-                        _isProgrammaticClear = true;
-                        _searchController.clear();
-                        _searchFocusNode.unfocus();
-                        if (_portalController.isShowing) {
-                          _portalController.hide();
-                        }
-                      },
+                  child: TextField(
+                    focusNode: _searchFocusNode,
+                    controller: _searchController,
+                    style: const TextStyle(height: 1.2),
+                    onTap: () {
+                      if (!_portalController.isShowing) {
+                        _portalController.show();
+                        _fetchInitialData(_searchController.text);
+                      }
+                    },
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: 'Tìm theo mã, tên sản phẩm (F3)',
+                      border: const OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(30.0)),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16.0,
+                      ),
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          _isProgrammaticClear = true;
+                          _searchController.clear();
+                          _searchFocusNode.unfocus();
+                          if (_portalController.isShowing) {
+                            _portalController.hide();
+                          }
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -386,6 +391,11 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                       builder: (context) => const PosSettingsDialog(),
                     );
                     break;
+                  case 'user_management':
+                    Navigator.of(context).push(MaterialPageRoute(
+                      builder: (context) => const UserManagementScreen(),
+                    ));
+                    break;
                   case 'logout':
                     context.read<AuthService>().signOut();
                     break;
@@ -397,6 +407,13 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                   child: ListTile(
                     leading: Icon(Icons.settings_outlined),
                     title: Text('Tùy chỉnh hiển thị'),
+                  ),
+                ),
+                const PopupMenuItem<String>(
+                  value: 'user_management',
+                  child: ListTile(
+                    leading: Icon(Icons.manage_accounts_outlined),
+                    title: Text('Quản lý người dùng'),
                   ),
                 ),
                 const PopupMenuItem<String>(
