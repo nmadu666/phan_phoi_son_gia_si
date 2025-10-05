@@ -4,6 +4,7 @@ class KiotVietProduct {
   final String id;
   final String code;
   final String name;
+  final String fullName;
   final String unit;
   final double basePrice;
 
@@ -11,6 +12,7 @@ class KiotVietProduct {
     required this.id,
     required this.code,
     required this.name,
+    required this.fullName,
     required this.unit,
     required this.basePrice,
   });
@@ -21,6 +23,7 @@ class KiotVietProduct {
       id: doc.id,
       code: data['code'] ?? '',
       name: data['name'] ?? '',
+      fullName: data['fullName'] ?? data['name'] ?? '',
       unit: data['unit'] ?? '',
       basePrice: (data['basePrice'] as num?)?.toDouble() ?? 0.0,
     );

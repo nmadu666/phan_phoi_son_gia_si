@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
@@ -32,6 +33,7 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
   final FocusNode _searchFocusNode = FocusNode();
   final ScrollController _suggestionsScrollController = ScrollController();
   final OverlayPortalController _portalController = OverlayPortalController();
+  bool _isProgrammaticClear = false;
 
   @override
   void initState() {
@@ -39,8 +41,19 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
     // Khởi tạo service một lần.
     _kiotVietProductService = KiotVietProductService();
     _suggestionsScrollController.addListener(_onSuggestionsScroll);
-    // Lắng nghe sự thay đổi của text trong TextEditingController
     _searchController.addListener(() {
+      // If the clear was initiated by our code (e.g., after selecting an item),
+      // reset the flag and do nothing else.
+      if (_isProgrammaticClear) {
+        _isProgrammaticClear = false;
+        return;
+      }
+
+      // If the user clears the text, fetch recent products.
+      // Otherwise, perform a debounced search.
+      if (_searchController.text.isEmpty && _portalController.isShowing) {
+        _fetchInitialData();
+      }
       _onSearchChanged(_searchController.text);
     });
   }
@@ -159,21 +172,6 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
     }
   }
 
-  void _onSearchOpened() {
-    if (_searchController.text.isEmpty && _searchResults.isEmpty) {
-      _fetchInitialData();
-    }
-  }
-
-  void _onSearchClosed() {
-    _portalController.hide();
-    setState(() {
-      _searchResults = [];
-      _lastDocument = null;
-      _hasMore = true;
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final temporaryOrderService = context.watch<TemporaryOrderService>();
@@ -234,21 +232,36 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                 child: TextField(
                   focusNode: _searchFocusNode,
                   controller: _searchController,
+                  style: const TextStyle(height: 1.2),
                   onTap: () {
-                    _portalController.show();
-                    _onSearchOpened();
+                    if (!_portalController.isShowing) {
+                      _portalController.show();
+                      _fetchInitialData(_searchController.text);
+                    }
                   },
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search),
                     hintText: 'Tìm theo mã, tên sản phẩm (F3)',
-                    border: OutlineInputBorder(
+                    border: const OutlineInputBorder(
                       borderRadius: BorderRadius.all(Radius.circular(30.0)),
                       borderSide: BorderSide.none,
                     ),
                     filled: true,
-                    contentPadding: EdgeInsets.symmetric(horizontal: 16.0),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                    ),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () {
+                        _isProgrammaticClear = true;
+                        _searchController.clear();
+                        _searchFocusNode.unfocus();
+                        if (_portalController.isShowing) {
+                          _portalController.hide();
+                        }
+                      },
+                    ),
                   ),
-                  style: const TextStyle(height: 1.2),
                 ),
               ),
             ),
@@ -444,10 +457,24 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
             'Mã: ${product.code} - ĐVT: ${product.unit} - Giá: ${product.basePrice}',
           ),
           onTap: () {
+            print(
+              '--- DEBUG (UI): Tapping on product: ${product.name} (ID: ${product.id}) ---',
+            );
             context
                 .read<TemporaryOrderService>()
                 .addKiotVietProductToActiveOrder(product);
-            _onSearchClosed();
+            // Đặt cờ để ngăn listener tìm kiếm lại dữ liệu khi xóa.
+            _isProgrammaticClear = true;
+            _searchController.clear();
+
+            // Sửa lỗi: Trì hoãn việc unfocus và ẩn portal để đảm bảo onTap được thực thi hoàn toàn.
+            // Nếu không, portal sẽ bị hủy trước khi addKiotVietProductToActiveOrder kịp chạy.
+            Future.delayed(Duration.zero, () {
+              _searchFocusNode.unfocus();
+              if (_portalController.isShowing) {
+                _portalController.hide();
+              }
+            });
           },
         );
       },

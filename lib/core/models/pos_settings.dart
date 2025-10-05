@@ -5,6 +5,7 @@ class PosSettings {
   // Display Tab Settings
   final bool showLineNumber;
   final bool showProductCode;
+  final bool showUnit;
   final bool showSellingPrice;
   final bool showDiscount;
   final bool showLineTotal;
@@ -19,6 +20,7 @@ class PosSettings {
   PosSettings({
     this.showLineNumber = true,
     this.showProductCode = true,
+    this.showUnit = true,
     this.showSellingPrice = true,
     this.showDiscount = true,
     this.showLineTotal = true,
@@ -32,6 +34,7 @@ class PosSettings {
   PosSettings copyWith({
     bool? showLineNumber,
     bool? showProductCode,
+    bool? showUnit,
     bool? showSellingPrice,
     bool? showDiscount,
     bool? showLineTotal,
@@ -44,6 +47,7 @@ class PosSettings {
     return PosSettings(
       showLineNumber: showLineNumber ?? this.showLineNumber,
       showProductCode: showProductCode ?? this.showProductCode,
+      showUnit: showUnit ?? this.showUnit,
       showSellingPrice: showSellingPrice ?? this.showSellingPrice,
       showDiscount: showDiscount ?? this.showDiscount,
       showLineTotal: showLineTotal ?? this.showLineTotal,
@@ -60,6 +64,7 @@ class PosSettings {
     return {
       'showLineNumber': showLineNumber,
       'showProductCode': showProductCode,
+      'showUnit': showUnit,
       'showSellingPrice': showSellingPrice,
       'showDiscount': showDiscount,
       'showLineTotal': showLineTotal,
@@ -75,6 +80,7 @@ class PosSettings {
     return PosSettings(
       showLineNumber: map['showLineNumber'] ?? true,
       showProductCode: map['showProductCode'] ?? true,
+      showUnit: map['showUnit'] ?? true,
       showSellingPrice: map['showSellingPrice'] ?? true,
       showDiscount: map['showDiscount'] ?? true,
       showLineTotal: map['showLineTotal'] ?? true,
@@ -93,7 +99,6 @@ class PosSettings {
 
   @override
   String toString() {
-    return 'PosSettings(showLineNumber: $showLineNumber, showProductCode: $showProductCode, showSellingPrice: $showSellingPrice, showDiscount: $showDiscount, showLineTotal: $showLineTotal, allowEditLineTotal: $allowEditLineTotal, showLastPrice: $showLastPrice, showPaymentSuggestion: $showPaymentSuggestion, showInventory: $showInventory, allowDragAndDrop: $allowDragAndDrop)';
+    return 'PosSettings(showLineNumber: $showLineNumber, showProductCode: $showProductCode, showUnit: $showUnit, showSellingPrice: $showSellingPrice, showDiscount: $showDiscount, showLineTotal: $showLineTotal, allowEditLineTotal: $allowEditLineTotal, showLastPrice: $showLastPrice, showPaymentSuggestion: $showPaymentSuggestion, showInventory: $showInventory, allowDragAndDrop: $allowDragAndDrop)';
   }
 }
-

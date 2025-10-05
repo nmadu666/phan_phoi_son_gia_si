@@ -70,12 +70,13 @@ class TemporaryOrderService with ChangeNotifier {
   }
 
   /// Creates a new, empty temporary order and sets it as active.
-  void createNewOrder() {
+  /// Returns the ID of the newly created order.
+  String? createNewOrder() {
     // Enforce a limit of 20 temporary orders.
     if (_orders.length >= 20) {
       // In a real app, you might want to signal this to the UI.
       print('Maximum number of temporary orders (20) reached.');
-      return;
+      return null;
     }
     final newOrder = TemporaryOrder(
       id: _uuid.v4(),
@@ -85,6 +86,7 @@ class TemporaryOrderService with ChangeNotifier {
     _activeOrderId = newOrder.id;
     _saveOrders();
     notifyListeners();
+    return newOrder.id;
   }
 
   /// Deletes an order by its ID.
@@ -114,73 +116,84 @@ class TemporaryOrderService with ChangeNotifier {
     }
   }
 
-  /// Generic private method to add an item to the active order.
-  /// This avoids code duplication.
-  void _addItemToActiveOrder({
-    required String productId,
-    required String productName,
-    required String productCode,
-    required double unitPrice,
-  }) {
-    if (_activeOrderId == null) return;
-
-    final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
-
-    // Check if item already exists using a safer method.
-    final existingItemIndex = activeOrder.items.indexWhere(
-      (item) => item.productId == productId,
-    );
-
-    if (existingItemIndex != -1) {
-      // Item exists, increment quantity.
-      activeOrder.items[existingItemIndex].quantity++;
-    } else {
-      // Item does not exist, add a new one.
-      final newItem = CartItem(
-        productId: productId,
-        productName: productName,
-        productCode: productCode,
-        unitPrice: unitPrice,
-      );
-      activeOrder.items.add(newItem);
+  /// Adds a product from KiotViet search results to the active order.
+  ///
+  /// If a 'master' item (one not created by duplication) for this product
+  /// already exists in the cart, its quantity is incremented. Otherwise, a new
+  /// master `CartItem` is created and added to the order.
+  void addKiotVietProductToActiveOrder(KiotVietProduct product) {
+    // Sửa lỗi: Đảm bảo luôn có một đơn hàng active trước khi thêm sản phẩm.
+    // Nếu không có active order, tạo mới hoặc chọn một cái có sẵn.
+    if (_activeOrderId == null) {
+      if (_orders.isEmpty) {
+        // Tạo một đơn hàng mới và gán ID của nó làm active.
+        // createNewOrder bây giờ trả về ID của đơn hàng mới.
+        _activeOrderId = createNewOrder();
+      } else {
+        // Nếu có đơn hàng nhưng không có đơn nào active, đặt đơn cuối cùng làm active.
+        _activeOrderId = _orders.last.id;
+      }
     }
 
-    _saveOrders();
-    notifyListeners();
+    // If _activeOrderId is still null (e.g., createNewOrder failed), we cannot proceed.
+    if (_activeOrderId == null) {
+      print("Failed to add product: Could not determine an active order.");
+      return;
+    }
+
+    try {
+      final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+
+      // Try to find an existing "master" item for this product.
+      final existingItemIndex = activeOrder.items.indexWhere(
+        (item) => item.productId == product.id && item.isMaster,
+      );
+
+      if (existingItemIndex != -1) {
+        // Item exists, increment quantity.
+        activeOrder.items[existingItemIndex].quantity++;
+      } else {
+        // Item does not exist, add a new "master" item.
+        final newItem = CartItem(
+          id: _uuid.v4(), // Generate a unique ID for the cart item
+          productId: product.id,
+          productFullName: product.fullName,
+          productName: product.name,
+          productCode: product.code,
+          unit: product.unit,
+          unitPrice: product.basePrice,
+          isMaster: true, // This is a master item
+        );
+        activeOrder.items.add(newItem);
+      }
+
+      _saveOrders();
+      notifyListeners();
+    } catch (e) {
+      print("Error finding active order with ID '$_activeOrderId'. Error: $e");
+    }
   }
 
-  void addKiotVietProductToActiveOrder(KiotVietProduct product) {
-    _addItemToActiveOrder(
-      productId: product.id,
-      productName: product.name,
-      productCode: product.code,
-      unitPrice: product.basePrice,
-    );
-  }
-
-  /// Finds an item in the active order by its product ID.
-  CartItem? _findItemInActiveOrder(String productId) {
+  /// Finds an item in the active order by its unique cart item ID.
+  CartItem? _findItemInActiveOrder(String cartItemId) {
     if (_activeOrderId == null) return null;
     try {
       final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
-      return activeOrder.items.firstWhere(
-        (item) => item.productId == productId,
-      );
+      return activeOrder.items.firstWhere((item) => item.id == cartItemId);
     } catch (e) {
       return null; // Order or item not found
     }
   }
 
   /// Updates the quantity of an item in the active order.
-  /// Quantity can be a double.
-  void updateItemQuantity(String productId, double newQuantity) {
-    final item = _findItemInActiveOrder(productId);
+  void updateItemQuantity(String cartItemId, double newQuantity) {
+    final item = _findItemInActiveOrder(cartItemId);
     if (item != null) {
       // Ensure quantity is not negative
       if (newQuantity <= 0) {
         // If quantity is zero or less, remove the item
         final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
-        activeOrder.items.removeWhere((i) => i.productId == productId);
+        activeOrder.items.removeWhere((i) => i.id == cartItemId);
       } else {
         item.quantity = newQuantity;
       }
@@ -192,8 +205,8 @@ class TemporaryOrderService with ChangeNotifier {
   }
 
   /// Updates the unit price of an item in the active order.
-  void updateItemUnitPrice(String productId, double newUnitPrice) {
-    final item = _findItemInActiveOrder(productId);
+  void updateItemUnitPrice(String cartItemId, double newUnitPrice) {
+    final item = _findItemInActiveOrder(cartItemId);
     if (item != null && newUnitPrice >= 0) {
       item.unitPrice = newUnitPrice;
       // When unit price changes, the overridden total might no longer be valid.
@@ -208,11 +221,11 @@ class TemporaryOrderService with ChangeNotifier {
   /// - [discountValue]: The value of the discount.
   /// - [isPercentage]: True if the discount is a percentage, false for a fixed amount.
   void applyItemDiscount(
-    String productId,
+    String cartItemId,
     double discountValue, {
     required bool isPercentage,
   }) {
-    final item = _findItemInActiveOrder(productId);
+    final item = _findItemInActiveOrder(cartItemId);
     if (item != null && discountValue >= 0) {
       item.discount = discountValue;
       item.isDiscountPercentage = isPercentage;
@@ -226,8 +239,8 @@ class TemporaryOrderService with ChangeNotifier {
   /// Overrides the line total for an item.
   /// When this is set, it bypasses all other calculations for the item's total.
   /// To remove the override, set [newTotal] to null.
-  void overrideItemLineTotal(String productId, double? newTotal) {
-    final item = _findItemInActiveOrder(productId);
+  void overrideItemLineTotal(String cartItemId, double? newTotal) {
+    final item = _findItemInActiveOrder(cartItemId);
     if (item != null) {
       if (newTotal != null && newTotal < 0)
         return; // Cannot have negative total
@@ -246,16 +259,62 @@ class TemporaryOrderService with ChangeNotifier {
   }
 
   /// Removes an item from the active order.
-  void removeItem(String productId) {
+  void removeItem(String cartItemId) {
     if (_activeOrderId == null) return;
     final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
     final originalLength = activeOrder.items.length;
-    activeOrder.items.removeWhere((item) => item.productId == productId);
+    activeOrder.items.removeWhere((item) => item.id == cartItemId);
 
     // Only notify if an item was actually removed
     if (activeOrder.items.length < originalLength) {
       _saveOrders();
       notifyListeners();
     }
+  }
+
+  /// Duplicates an item in the active order.
+  /// The new item will have a new unique ID and will be marked as not a master item.
+  void duplicateItem(CartItem itemToDuplicate) {
+    if (_activeOrderId == null) return;
+    final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+
+    // Create a new item by copying the original and assigning a new ID.
+    final newItem = itemToDuplicate.copyWith(
+      id: _uuid.v4(),
+      isMaster: false, // The duplicated item is not a master
+    );
+
+    activeOrder.items.add(newItem);
+    _saveOrders();
+    notifyListeners();
+  }
+
+  /// Updates the note of an item in the active order.
+  void updateItemNote(String cartItemId, String? newNote) {
+    final item = _findItemInActiveOrder(cartItemId);
+    if (item != null) {
+      // Set note to null if it's an empty string, otherwise use the new note.
+      item.note = (newNote != null && newNote.trim().isEmpty) ? null : newNote;
+      _saveOrders();
+      notifyListeners();
+    }
+  }
+
+  /// Reorders an item in the active order's item list.
+  void reorderItem(int oldIndex, int newIndex) {
+    if (_activeOrderId == null) return;
+    final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
+
+    // If the item is moved to a lower position in the list,
+    // the new index needs to be adjusted.
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+
+    final item = activeOrder.items.removeAt(oldIndex);
+    activeOrder.items.insert(newIndex, item);
+
+    _saveOrders();
+    notifyListeners();
   }
 }

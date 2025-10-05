@@ -90,6 +90,11 @@ class _PosSettingsDialogState extends State<PosSettingsDialog>
           (val) => _currentSettings = _currentSettings.copyWith(showProductCode: val),
         ),
         _buildSwitchTile(
+          'Đơn vị tính',
+          _currentSettings.showUnit,
+          (val) => _currentSettings = _currentSettings.copyWith(showUnit: val),
+        ),
+        _buildSwitchTile(
           'Giá bán',
           _currentSettings.showSellingPrice,
           (val) => _currentSettings = _currentSettings.copyWith(showSellingPrice: val),
@@ -153,4 +158,3 @@ class _PosSettingsDialogState extends State<PosSettingsDialog>
     );
   }
 }
-
