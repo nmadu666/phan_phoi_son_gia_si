@@ -32,7 +32,7 @@ class _CartItemsListState extends State<CartItemsList> {
           activeOrder = null;
         }
 
-        if (activeOrder == null || activeOrder!.items.isEmpty) {
+        if (activeOrder == null || activeOrder.items.isEmpty) {
           return const Center(
             child: Text(
               'Chưa có sản phẩm trong giỏ hàng',

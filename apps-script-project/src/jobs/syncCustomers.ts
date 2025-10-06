@@ -3,25 +3,9 @@
  */
 
 import { fetchAllKiotVietData } from '../api/kiotviet';
-import { generateKeywordsFromText } from '../core/text';
+import { generateSearchables } from '../core/text';
+import { parseKiotVietDate } from '../core/date';
 import { batchWriteToFirestore } from '../api/firestore_rest';
-
-/**
- * Parses a date string from KiotViet API format (e.g., "/Date(1609459200000+0700)/")
- * into a JavaScript Date object.
- * @param {string | null | undefined} kiotVietDate The date string from KiotViet.
- * @returns {Date | null} A Date object or null if parsing fails.
- */
-function parseKiotVietDate(kiotVietDate: string | null | undefined): Date | null {
-  if (!kiotVietDate || typeof kiotVietDate !== 'string') {
-    return null;
-  }
-  const match = kiotVietDate.match(/\/Date\((\d+).*\)\//);
-  if (match && match[1]) {
-    return new Date(parseInt(match[1], 10));
-  }
-  return null;
-}
 
 /**
  * Fetches all customers from the KiotViet API and syncs them to the 'kiotviet_customers'
@@ -37,28 +21,22 @@ export function syncKiotVietCustomersToFirestore() {
 
     if (allCustomers && allCustomers.length > 0) {
       const customersToSync = allCustomers.map(customer => {
-        const nameKeywords = generateKeywordsFromText(customer.name);
-        const codeKeywords = generateKeywordsFromText(customer.code);
-        const contactNumberKeywords = generateKeywordsFromText(customer.contactNumber);
+        const nameSearchables = generateSearchables(customer.name);
+        const codeSearchables = generateSearchables(customer.code);
+        const contactNumberSearchables = generateSearchables(customer.contactNumber);
 
-        const allKeywords = new Set([
-          ...nameKeywords,
-          ...codeKeywords,
-          ...contactNumberKeywords,
-        ]);
+        const allKeywords = new Set([...nameSearchables.keywords, ...codeSearchables.keywords, ...contactNumberSearchables.keywords]);
+        const allPrefixes = new Set([...nameSearchables.prefixes, ...codeSearchables.prefixes, ...contactNumberSearchables.prefixes]);
 
         const syncedCustomer: any = {
           ...customer,
           search_keywords: Array.from(allKeywords),
+          search_prefixes: Array.from(allPrefixes),
         };
 
         // Only add date fields if they are valid
-        const createdDate = parseKiotVietDate(customer.createdDate);
-        if (createdDate) syncedCustomer.createdDate = createdDate;
-
-        const birthDate = parseKiotVietDate(customer.birthDate);
-        if (birthDate) syncedCustomer.birthDate = birthDate;
-        
+        syncedCustomer.createdDate = parseKiotVietDate(customer.createdDate);
+        syncedCustomer.birthDate = parseKiotVietDate(customer.birthDate);
         return syncedCustomer;
       });
 

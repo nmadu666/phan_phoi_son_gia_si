@@ -20,6 +20,9 @@ function syncKiotVietSaleChannelsToFirestore() {
 }
 // Expose the job for syncing branches
 function syncKiotVietBranchesToFirestore() {
+}
+// Expose the job for fixing incorrect date formats
+function fixIncorrectDateFormatsInFirestore() {
 }/******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
@@ -32,7 +35,8 @@ function syncKiotVietBranchesToFirestore() {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   batchWriteToFirestore: () => (/* binding */ batchWriteToFirestore)
+/* harmony export */   batchWriteToFirestore: () => (/* binding */ batchWriteToFirestore),
+/* harmony export */   getServiceAccountOAuthToken_: () => (/* binding */ getServiceAccountOAuthToken_)
 /* harmony export */ });
 /* harmony import */ var _core_config__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../core/config */ "./src/core/config.ts");
 /**
@@ -91,8 +95,9 @@ function getServiceAccountOAuthToken_() {
  * This uses the Firestore REST API for true batch operations.
  * @param {string} collectionName - The name of the Firestore collection.
  * @param {any[]} array - The array of objects to write. Each object must have an 'id' property.
+ * @param {boolean} [merge=false] - If true, performs a merge (update) instead of a full overwrite.
  */
-function batchWriteToFirestore(collectionName, array) {
+function batchWriteToFirestore(collectionName, array, merge = false) {
     const token = getServiceAccountOAuthToken_();
     const projectId = (0,_core_config__WEBPACK_IMPORTED_MODULE_0__.getFirestoreProjectId)();
     const baseUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:commit`;
@@ -106,12 +111,21 @@ function batchWriteToFirestore(collectionName, array) {
             const docId = String(item.id);
             if (!docId || docId === 'undefined')
                 return null;
-            return {
+            const writeOperation = {
                 update: {
                     name: `projects/${projectId}/databases/(default)/documents/${collectionName}/${docId}`,
                     fields: wrapObjectForFirestore_(item),
                 },
             };
+            if (merge) {
+                // For merge, we need to specify which fields to update.
+                // We exclude the 'id' field from the mask.
+                const fieldPaths = Object.keys(item).filter(k => k !== 'id');
+                if (fieldPaths.length > 0) {
+                    writeOperation.updateMask = { fieldPaths: fieldPaths };
+                }
+            }
+            return writeOperation;
         })
             .filter(w => w !== null);
         if (writes.length === 0)
@@ -149,10 +163,10 @@ function wrapObjectForFirestore_(obj) {
         if (!obj.hasOwnProperty(key))
             continue;
         const value = obj[key];
-        if (value === null || value === undefined) {
-            fields[key] = { nullValue: null };
-        }
-        else if (typeof value === 'string') {
+        // Hoàn toàn bỏ qua các khóa có giá trị null hoặc undefined
+        if (value === null || value === undefined)
+            continue;
+        if (typeof value === 'string') {
             if (value.startsWith('projects/')) {
                 // Handle reference values
                 fields[key] = { referenceValue: value };
@@ -179,13 +193,12 @@ function wrapObjectForFirestore_(obj) {
             fields[key] = {
                 arrayValue: {
                     values: value.map(item => {
-                        // Simple array conversion, can be expanded
+                        // This now correctly handles arrays of strings, which is what we need for search fields.
                         if (typeof item === 'string')
                             return { stringValue: item };
-                        if (typeof item === 'number')
-                            return { doubleValue: item };
-                        return { stringValue: String(item) };
-                    }),
+                        // Return null for unsupported types in the array to filter them out later.
+                        return null;
+                    }).filter(v => v !== null), // Filter out any null values from unsupported types
                 },
             };
         }
@@ -382,6 +395,49 @@ const getFirestoreProjectId = () => (0,_properties__WEBPACK_IMPORTED_MODULE_0__.
 
 /***/ }),
 
+/***/ "./src/core/date.ts":
+/*!**************************!*\
+  !*** ./src/core/date.ts ***!
+  \**************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   parseKiotVietDate: () => (/* binding */ parseKiotVietDate)
+/* harmony export */ });
+/**
+ * @fileoverview Contains utility functions for date parsing.
+ */
+/**
+ * Parses a date string from various formats (KiotViet API, ISO 8601) into a JavaScript Date object.
+ * Handles formats like:
+ * - "/Date(1609459200000+0700)/" (KiotViet)
+ * - "2022-08-04T13:08:26.2970000" (ISO 8601 variant)
+ * @param {string | null | undefined} dateString The date string to parse.
+ * @returns {Date | null} A Date object or null if parsing fails.
+ */
+function parseKiotVietDate(dateString) {
+    if (!dateString || typeof dateString !== 'string')
+        return null;
+    // 1. Try parsing KiotViet format: /Date(1609459200000+0700)/
+    const kiotVietMatch = dateString.match(/\/Date\((\d+).*\)\//);
+    if (kiotVietMatch && kiotVietMatch[1]) {
+        return new Date(parseInt(kiotVietMatch[1], 10));
+    }
+    // 2. Try parsing as a standard ISO 8601 string or similar formats
+    const date = new Date(dateString);
+    // Check if the date is valid. `new Date('invalid string')` returns an Invalid Date object,
+    // and its time value is NaN.
+    if (!isNaN(date.getTime())) {
+        return date;
+    }
+    // 3. If all parsing fails, return null
+    return null;
+}
+
+
+/***/ }),
+
 /***/ "./src/core/properties.ts":
 /*!********************************!*\
   !*** ./src/core/properties.ts ***!
@@ -427,26 +483,23 @@ const setScriptProperty = (key, value) => {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   generateKeywordsFromText: () => (/* binding */ generateKeywordsFromText)
+/* harmony export */   generateKeywordsFromText: () => (/* binding */ generateKeywordsFromText),
+/* harmony export */   generateSearchables: () => (/* binding */ generateSearchables)
 /* harmony export */ });
 /**
  * @fileoverview Contains utility functions for text processing.
  */
 /**
- * Generates a clean array of keywords from a given text string.
- * This function performs several normalization steps:
- * 1. Converts the text to lowercase.
- * 2. Removes Vietnamese diacritics (e.g., "sơn màu" -> "son mau").
- * 3. Replaces any non-alphanumeric characters with spaces.
- * 4. Splits the text into individual words.
- * 5. Returns an array of unique, non-empty keywords.
+ * Generates keywords and prefixes from a given text string for Firestore search.
+ * - `keywords`: An array of unique, normalized words.
+ * - `prefixes`: An array of all possible prefixes for each word, enabling "search-as-you-type".
  *
  * @param {string} text The input string to process.
- * @returns {string[]} An array of normalized keywords.
+ * @returns {{keywords: string[], prefixes: string[]}} An object containing keywords and prefixes.
  */
-function generateKeywordsFromText(text) {
-    if (!text) {
-        return [];
+function generateSearchables(text) {
+    if (!text || typeof text !== 'string') {
+        return { keywords: [], prefixes: [] };
     }
     const normalizedText = text
         .toLowerCase()
@@ -455,7 +508,142 @@ function generateKeywordsFromText(text) {
         .replace(/đ/g, 'd'); // Special case for the Vietnamese letter 'đ'
     // Split by any non-alphanumeric character and filter out empty strings
     const words = normalizedText.split(/[^a-z0-9]+/).filter(word => word.length > 0);
-    return Array.from(new Set(words)); // Return unique keywords
+    const uniqueWords = Array.from(new Set(words));
+    const prefixes = new Set();
+    uniqueWords.forEach(word => {
+        for (let i = 1; i <= word.length; i++) {
+            prefixes.add(word.substring(0, i));
+        }
+    });
+    return {
+        keywords: uniqueWords,
+        prefixes: Array.from(prefixes),
+    };
+}
+/**
+ * @deprecated Use generateSearchables instead.
+ * Generates a clean array of keywords from a given text string.
+ */
+function generateKeywordsFromText(text) {
+    return generateSearchables(text).keywords;
+}
+
+
+/***/ }),
+
+/***/ "./src/jobs/fixData.ts":
+/*!*****************************!*\
+  !*** ./src/jobs/fixData.ts ***!
+  \*****************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   fixIncorrectDateFormatsInFirestore: () => (/* binding */ fixIncorrectDateFormatsInFirestore)
+/* harmony export */ });
+/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/* harmony import */ var _core_config__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../core/config */ "./src/core/config.ts");
+/* harmony import */ var _core_date__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../core/date */ "./src/core/date.ts");
+/**
+ * @fileoverview Contains functions to fix data integrity issues in Firestore.
+ */
+
+
+
+
+/**
+ * A utility function to find and fix documents in a specific collection
+ * where date fields are stored as strings instead of Timestamps.
+ *
+ * @param {string} collectionName The name of the Firestore collection to scan.
+ * @param {string[]} dateFields An array of field names that should be dates.
+ */
+function fixDateFieldsInCollection(collectionName, dateFields) {
+    const projectId = (0,_core_config__WEBPACK_IMPORTED_MODULE_1__.getFirestoreProjectId)();
+    const token = (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_0__.getServiceAccountOAuthToken_)();
+    let nextPageToken = undefined;
+    const pageSize = 300; // Process 300 docs per page to stay within limits
+    let documentsToUpdate = [];
+    let totalDocsScanned = 0;
+    Logger.log(`Starting to fix date fields for collection: '${collectionName}'...`);
+    do {
+        let url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${collectionName}?pageSize=${pageSize}`;
+        if (nextPageToken) {
+            url += `&pageToken=${nextPageToken}`;
+        }
+        const options = {
+            method: 'get',
+            contentType: 'application/json',
+            headers: { Authorization: `Bearer ${token}` },
+            muteHttpExceptions: true,
+        };
+        const response = UrlFetchApp.fetch(url, options);
+        const responseData = JSON.parse(response.getContentText());
+        const documents = responseData.documents;
+        if (documents && documents.length > 0) {
+            totalDocsScanned += documents.length;
+            Logger.log(`Scanning page of ${documents.length} documents... (Total scanned: ${totalDocsScanned})`);
+            documents.forEach((doc) => {
+                var _a, _b;
+                const docId = doc.name.split('/').pop();
+                let needsUpdate = false;
+                const updatePayload = { id: docId };
+                for (const field of dateFields) {
+                    const fieldValue = (_b = (_a = doc.fields) === null || _a === void 0 ? void 0 : _a[field]) === null || _b === void 0 ? void 0 : _b.stringValue;
+                    // Check if the field exists and is a string (indicating it's an incorrect date format)
+                    if (typeof fieldValue === 'string') {
+                        const parsedDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(fieldValue);
+                        // We update if it's a valid KiotViet date string, or set to null if it's some other invalid string
+                        if (parsedDate) {
+                            Logger.log(`Found invalid date in doc '${docId}', field '${field}'. Fixing value: ${fieldValue}`);
+                            updatePayload[field] = parsedDate;
+                            needsUpdate = true;
+                        }
+                        else {
+                            // Optional: handle cases where the string is not a KiotViet date, e.g., set to null
+                            // updatePayload[field] = null;
+                            // needsUpdate = true;
+                        }
+                    }
+                }
+                if (needsUpdate) {
+                    documentsToUpdate.push(updatePayload);
+                }
+            });
+        }
+        nextPageToken = responseData.nextPageToken;
+    } while (nextPageToken);
+    if (documentsToUpdate.length > 0) {
+        Logger.log(`Found ${documentsToUpdate.length} documents to update in '${collectionName}'.`);
+        // Using merge=true to only update the specified date fields
+        (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_0__.batchWriteToFirestore)(collectionName, documentsToUpdate, true); // Use merge=true
+    }
+    else {
+        Logger.log(`No documents with incorrect date formats found in '${collectionName}'.`);
+    }
+}
+/**
+ * Main function to be run from the Apps Script Editor.
+ * This will scan all relevant collections and fix any date fields
+ * that were incorrectly stored as strings.
+ */
+function fixIncorrectDateFormatsInFirestore() {
+    try {
+        Logger.log('--- Starting Data Fix Process ---');
+        const collectionsToFix = {
+            'kiotviet_products': ['createdDate', 'modifiedDate'],
+            'kiotviet_customers': ['createdDate', 'birthDate'],
+            'kiotviet_users': ['createdDate', 'birthDate'],
+            'kiotviet_branches': ['createdDate', 'modifiedDate'],
+        };
+        for (const collectionName in collectionsToFix) {
+            fixDateFieldsInCollection(collectionName, collectionsToFix[collectionName]);
+        }
+        Logger.log('--- Data Fix Process Finished ---');
+    }
+    catch (e) {
+        Logger.log(`An error occurred during the data fix process: ${e.toString()}\n${e.stack}`);
+    }
 }
 
 
@@ -473,27 +661,13 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/kiotviet */ "./src/api/kiotviet.ts");
 /* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/* harmony import */ var _core_date__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../core/date */ "./src/core/date.ts");
 /**
  * @fileoverview Contains the job for syncing branches from KiotViet to Firestore.
  */
 
 
-/**
- * Parses a date string from KiotViet API format (e.g., "/Date(1609459200000+0700)/")
- * into a JavaScript Date object.
- * @param {string | null | undefined} kiotVietDate The date string from KiotViet.
- * @returns {Date | null} A Date object or null if parsing fails.
- */
-function parseKiotVietDate(kiotVietDate) {
-    if (!kiotVietDate || typeof kiotVietDate !== 'string') {
-        return null;
-    }
-    const match = kiotVietDate.match(/\/Date\((\d+).*\)\//);
-    if (match && match[1]) {
-        return new Date(parseInt(match[1], 10));
-    }
-    return null;
-}
+
 /**
  * Fetches all branches from the KiotViet API and syncs them to the 'kiotviet_branches'
  * collection in Firestore.
@@ -505,11 +679,12 @@ function syncKiotVietBranchesToFirestore() {
     try {
         const allBranches = (0,_api_kiotviet__WEBPACK_IMPORTED_MODULE_0__.fetchAllKiotVietData)(endpoint);
         if (allBranches && allBranches.length > 0) {
-            const branchesToSync = allBranches.map(branch => ({
-                ...branch,
-                createdDate: parseKiotVietDate(branch.createdDate),
-                modifiedDate: parseKiotVietDate(branch.modifiedDate),
-            }));
+            const branchesToSync = allBranches.map(branch => {
+                const syncedBranch = { ...branch };
+                syncedBranch.createdDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(branch.createdDate);
+                syncedBranch.modifiedDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(branch.modifiedDate);
+                return syncedBranch;
+            });
             (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__.batchWriteToFirestore)(collectionName, branchesToSync);
         }
         else {
@@ -536,29 +711,15 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/kiotviet */ "./src/api/kiotviet.ts");
 /* harmony import */ var _core_text__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../core/text */ "./src/core/text.ts");
-/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/* harmony import */ var _core_date__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../core/date */ "./src/core/date.ts");
+/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
 /**
  * @fileoverview Contains the job for syncing customers from KiotViet to Firestore.
  */
 
 
 
-/**
- * Parses a date string from KiotViet API format (e.g., "/Date(1609459200000+0700)/")
- * into a JavaScript Date object.
- * @param {string | null | undefined} kiotVietDate The date string from KiotViet.
- * @returns {Date | null} A Date object or null if parsing fails.
- */
-function parseKiotVietDate(kiotVietDate) {
-    if (!kiotVietDate || typeof kiotVietDate !== 'string') {
-        return null;
-    }
-    const match = kiotVietDate.match(/\/Date\((\d+).*\)\//);
-    if (match && match[1]) {
-        return new Date(parseInt(match[1], 10));
-    }
-    return null;
-}
+
 /**
  * Fetches all customers from the KiotViet API and syncs them to the 'kiotviet_customers'
  * collection in Firestore, enriching them with search keywords.
@@ -571,28 +732,22 @@ function syncKiotVietCustomersToFirestore() {
         const allCustomers = (0,_api_kiotviet__WEBPACK_IMPORTED_MODULE_0__.fetchAllKiotVietData)(endpoint);
         if (allCustomers && allCustomers.length > 0) {
             const customersToSync = allCustomers.map(customer => {
-                const nameKeywords = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateKeywordsFromText)(customer.name);
-                const codeKeywords = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateKeywordsFromText)(customer.code);
-                const contactNumberKeywords = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateKeywordsFromText)(customer.contactNumber);
-                const allKeywords = new Set([
-                    ...nameKeywords,
-                    ...codeKeywords,
-                    ...contactNumberKeywords,
-                ]);
+                const nameSearchables = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateSearchables)(customer.name);
+                const codeSearchables = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateSearchables)(customer.code);
+                const contactNumberSearchables = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateSearchables)(customer.contactNumber);
+                const allKeywords = new Set([...nameSearchables.keywords, ...codeSearchables.keywords, ...contactNumberSearchables.keywords]);
+                const allPrefixes = new Set([...nameSearchables.prefixes, ...codeSearchables.prefixes, ...contactNumberSearchables.prefixes]);
                 const syncedCustomer = {
                     ...customer,
                     search_keywords: Array.from(allKeywords),
+                    search_prefixes: Array.from(allPrefixes),
                 };
                 // Only add date fields if they are valid
-                const createdDate = parseKiotVietDate(customer.createdDate);
-                if (createdDate)
-                    syncedCustomer.createdDate = createdDate;
-                const birthDate = parseKiotVietDate(customer.birthDate);
-                if (birthDate)
-                    syncedCustomer.birthDate = birthDate;
+                syncedCustomer.createdDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(customer.createdDate);
+                syncedCustomer.birthDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(customer.birthDate);
                 return syncedCustomer;
             });
-            (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_2__.batchWriteToFirestore)(collectionName, customersToSync);
+            (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_3__.batchWriteToFirestore)(collectionName, customersToSync);
         }
         else {
             Logger.log('No customers found to sync.');
@@ -618,10 +773,12 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/kiotviet */ "./src/api/kiotviet.ts");
 /* harmony import */ var _core_text__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../core/text */ "./src/core/text.ts");
-/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/* harmony import */ var _core_date__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../core/date */ "./src/core/date.ts");
+/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
 /**
  * @fileoverview Contains the job for syncing products from KiotViet to Firestore.
  */
+
 
 
 
@@ -640,15 +797,20 @@ function syncKiotVietProductsToFirestore() {
         if (allProducts && allProducts.length > 0) {
             // Step 2: Enrich products with the search_keywords field
             const productsWithKeywords = allProducts.map(product => {
-                const nameKeywords = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateKeywordsFromText)(product.name);
-                const codeKeywords = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateKeywordsFromText)(product.code);
-                // Combine keywords from name and code, ensuring uniqueness
-                const allKeywords = new Set([...nameKeywords, ...codeKeywords]);
-                return { ...product, search_keywords: Array.from(allKeywords) };
+                const syncedProduct = { ...product };
+                const nameSearchables = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateSearchables)(product.name);
+                const codeSearchables = (0,_core_text__WEBPACK_IMPORTED_MODULE_1__.generateSearchables)(product.code);
+                // Combine keywords and prefixes, ensuring uniqueness
+                syncedProduct.search_keywords = Array.from(new Set([...nameSearchables.keywords, ...codeSearchables.keywords]));
+                syncedProduct.search_prefixes = Array.from(new Set([...nameSearchables.prefixes, ...codeSearchables.prefixes]));
+                // Parse date fields to ensure they are stored as Timestamps
+                syncedProduct.createdDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(product.createdDate);
+                syncedProduct.modifiedDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(product.modifiedDate);
+                return syncedProduct;
             });
             // Step 3: Write the data to Firestore in batches
             Logger.log(`Fetched ${productsWithKeywords.length} products. Starting batch write to Firestore collection: ${collectionName}`);
-            (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_2__.batchWriteToFirestore)(collectionName, productsWithKeywords);
+            (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_3__.batchWriteToFirestore)(collectionName, productsWithKeywords);
             Logger.log('Successfully completed synchronization.');
         }
         else {
@@ -717,27 +879,13 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/kiotviet */ "./src/api/kiotviet.ts");
 /* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/* harmony import */ var _core_date__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../core/date */ "./src/core/date.ts");
 /**
  * @fileoverview Contains the job for syncing users (employees) from KiotViet to Firestore.
  */
 
 
-/**
- * Parses a date string from KiotViet API format (e.g., "/Date(1609459200000+0700)/")
- * into a JavaScript Date object.
- * @param {string | null | undefined} kiotVietDate The date string from KiotViet.
- * @returns {Date | null} A Date object or null if parsing fails.
- */
-function parseKiotVietDate(kiotVietDate) {
-    if (!kiotVietDate || typeof kiotVietDate !== 'string') {
-        return null;
-    }
-    const match = kiotVietDate.match(/\/Date\((\d+).*\)\//);
-    if (match && match[1]) {
-        return new Date(parseInt(match[1], 10));
-    }
-    return null;
-}
+
 /**
  * Fetches all users from the KiotViet API and syncs them to the 'kiotviet_users'
  * collection in Firestore.
@@ -751,12 +899,8 @@ function syncKiotVietUsersToFirestore() {
         if (allUsers && allUsers.length > 0) {
             const usersToSync = allUsers.map(user => {
                 const syncedUser = { ...user };
-                const createdDate = parseKiotVietDate(user.createdDate);
-                if (createdDate)
-                    syncedUser.createdDate = createdDate;
-                const birthDate = parseKiotVietDate(user.birthDate);
-                if (birthDate)
-                    syncedUser.birthDate = birthDate;
+                syncedUser.createdDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(user.createdDate);
+                syncedUser.birthDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(user.birthDate);
                 return syncedUser;
             });
             (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__.batchWriteToFirestore)(collectionName, usersToSync);
@@ -854,12 +998,14 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _jobs_syncUsers__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./jobs/syncUsers */ "./src/jobs/syncUsers.ts");
 /* harmony import */ var _jobs_syncSaleChannels__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./jobs/syncSaleChannels */ "./src/jobs/syncSaleChannels.ts");
 /* harmony import */ var _jobs_syncBranches__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ./jobs/syncBranches */ "./src/jobs/syncBranches.ts");
-/* harmony import */ var _core_properties__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ./core/properties */ "./src/core/properties.ts");
+/* harmony import */ var _jobs_fixData__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ./jobs/fixData */ "./src/jobs/fixData.ts");
+/* harmony import */ var _core_properties__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./core/properties */ "./src/core/properties.ts");
 /**
  * @fileoverview This is the main entry point for the Webpack bundle.
  * All functions that need to be globally available in the Google Apps Script
  * environment should be assigned to the `global` object.
  */
+
 
 
 
@@ -891,7 +1037,7 @@ function _MANUAL_SETUP_() {
             Logger.log(`WARNING: Property "${key}" still contains a placeholder value. It was NOT set.`);
         }
         else {
-            (0,_core_properties__WEBPACK_IMPORTED_MODULE_6__.setScriptProperty)(key, value);
+            (0,_core_properties__WEBPACK_IMPORTED_MODULE_7__.setScriptProperty)(key, value);
             Logger.log(`Property "${key}" was set successfully.`);
         }
     }
@@ -913,6 +1059,8 @@ __webpack_require__.g.syncKiotVietUsersToFirestore = _jobs_syncUsers__WEBPACK_IM
 __webpack_require__.g.syncKiotVietSaleChannelsToFirestore = _jobs_syncSaleChannels__WEBPACK_IMPORTED_MODULE_4__.syncKiotVietSaleChannelsToFirestore;
 // Expose the job for syncing branches
 __webpack_require__.g.syncKiotVietBranchesToFirestore = _jobs_syncBranches__WEBPACK_IMPORTED_MODULE_5__.syncKiotVietBranchesToFirestore;
+// Expose the job for fixing incorrect date formats
+__webpack_require__.g.fixIncorrectDateFormatsInFirestore = _jobs_fixData__WEBPACK_IMPORTED_MODULE_6__.fixIncorrectDateFormatsInFirestore;
 
 })();
 

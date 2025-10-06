@@ -10,6 +10,7 @@ import { syncKiotVietCustomersToFirestore } from './jobs/syncCustomers';
 import { syncKiotVietUsersToFirestore } from './jobs/syncUsers';
 import { syncKiotVietSaleChannelsToFirestore } from './jobs/syncSaleChannels';
 import { syncKiotVietBranchesToFirestore } from './jobs/syncBranches';
+import { fixIncorrectDateFormatsInFirestore } from './jobs/fixData';
 import { setScriptProperty } from './core/properties';
 
 /**
@@ -67,3 +68,6 @@ function _MANUAL_SETUP_() {
 
 // Expose the job for syncing branches
 (global as any).syncKiotVietBranchesToFirestore = syncKiotVietBranchesToFirestore;
+
+// Expose the job for fixing incorrect date formats
+(global as any).fixIncorrectDateFormatsInFirestore = fixIncorrectDateFormatsInFirestore;

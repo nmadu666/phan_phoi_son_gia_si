@@ -115,7 +115,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   Widget _buildBranchDropdown(
       AppUserWithDetails userDetails, List<KiotVietBranch> allBranches) {
     return DropdownButtonFormField<int?>(
-      value: userDetails.linkedBranch?.id,
+      initialValue: userDetails.linkedBranch?.id,
       decoration: const InputDecoration(
         labelText: 'Chi nhánh KiotViet',
         border: OutlineInputBorder(),
@@ -156,7 +156,7 @@ class _UserManagementScreenState extends State<UserManagementScreen> {
   Widget _buildKiotVietUserDropdown(
       AppUserWithDetails userDetails, List<KiotVietUser> allKiotVietUsers) {
     return DropdownButtonFormField<int?>(
-      value: userDetails.linkedKiotVietUser?.id,
+      initialValue: userDetails.linkedKiotVietUser?.id,
       decoration: const InputDecoration(
         labelText: 'Người dùng KiotViet',
         border: OutlineInputBorder(),

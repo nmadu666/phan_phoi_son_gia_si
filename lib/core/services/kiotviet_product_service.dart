@@ -3,40 +3,12 @@ import '../models/kiotviet_product.dart';
 
 class KiotVietProductService {
   final FirebaseFirestore _firestore;
+  final int _limit = 15;
 
   KiotVietProductService({FirebaseFirestore? firestore})
     : _firestore = firestore ?? FirebaseFirestore.instance;
 
-  Future<Map<String, dynamic>> getRecentProducts({
-    DocumentSnapshot? lastDoc,
-    int limit = 15,
-  }) async {
-    try {
-      Query query = _firestore
-          .collection('kiotviet_products')
-          .orderBy('createdDate', descending: true)
-          .limit(limit);
-
-      if (lastDoc != null) {
-        query = query.startAfterDocument(lastDoc);
-      }
-
-      final querySnapshot = await query.get();
-      final products = querySnapshot.docs
-          .map((doc) => KiotVietProduct.fromFirestore(doc))
-          .toList();
-
-      final lastDocument = querySnapshot.docs.isNotEmpty
-          ? querySnapshot.docs.last
-          : null;
-
-      return {'products': products, 'lastDoc': lastDocument};
-    } catch (e) {
-      print('An unexpected error occurred while fetching recent products: $e');
-      return {'products': [], 'lastDoc': null};
-    }
-  }
-
+  /// Removes diacritics from a string for searching.
   String _removeDiacritics(String str) {
     const withDia =
         'àáãạảăắằẳẵặâấầẩẫậèéẹẻẽêềếểễệđìíịỉĩòóọỏõôồốổỗộơờớởỡợùúụủũưừứửữựỳýỵỷỹ';
@@ -48,38 +20,61 @@ class KiotVietProductService {
     return str;
   }
 
+  /// Fetches recently modified products.
+  Future<Map<String, dynamic>> getRecentProducts({
+    DocumentSnapshot? lastDoc,
+  }) async {
+    Query query = _firestore
+        .collection('kiotviet_products')
+        .orderBy('modifiedDate', descending: true)
+        .limit(_limit);
+
+    if (lastDoc != null) {
+      query = query.startAfterDocument(lastDoc);
+    }
+
+    final querySnapshot = await query.get();
+    final products = querySnapshot.docs
+        .map((doc) => KiotVietProduct.fromFirestore(doc))
+        .toList();
+
+    return {
+      'products': products,
+      'lastDoc': querySnapshot.docs.isNotEmpty ? querySnapshot.docs.last : null,
+    };
+  }
+
+  /// Searches for products using prefix search on the `search_prefixes` field.
   Future<Map<String, dynamic>> searchProducts(
     String query, {
     DocumentSnapshot? lastDoc,
-    String? sortBy, // 'name_asc', 'name_desc', 'price_asc', 'price_desc'
   }) async {
-    final trimmedQuery = query.trim();
-    if (trimmedQuery.isEmpty) {
-      return {'products': [], 'lastDoc': null};
-    }
-    final lowerCaseQuery = _removeDiacritics(trimmedQuery.toLowerCase());
-
-    print('--- DEBUG: Searching products with query: "$lowerCaseQuery" ---');
-
     try {
-      Query baseQuery = _firestore
-          .collection('kiotviet_products')
-          .where('search_keywords', arrayContains: lowerCaseQuery);
-
-      // Sắp xếp kết quả
-      if (sortBy != null) {
-        switch (sortBy) {
-          case 'name_asc':
-            baseQuery = baseQuery.orderBy('name');
-            break;
-          case 'name_desc':
-            baseQuery = baseQuery.orderBy('name', descending: true);
-            break;
-          // Thêm các trường hợp sắp xếp khác nếu cần, ví dụ theo giá
-        }
+      final trimmedQuery = query.trim();
+      if (trimmedQuery.isEmpty) {
+        // If query is empty, return recent products instead.
+        return getRecentProducts(lastDoc: lastDoc);
       }
 
-      baseQuery = baseQuery.limit(15);
+      // Normalize the query for prefix search
+      final lowerCaseQuery = _removeDiacritics(trimmedQuery.toLowerCase());
+
+      Query baseQuery = _firestore.collection('kiotviet_products');
+
+      // Use `array-contains` on the new `search_prefixes` field.
+      // This enables efficient prefix matching.
+      baseQuery = baseQuery.where(
+        'search_prefixes',
+        arrayContains: lowerCaseQuery,
+      );
+
+      // We cannot order by 'modifiedDate' when using an array-contains filter.
+      // Firestore limitations require the orderBy field to be the same as the
+      // inequality/array-contains field. We accept the default ordering.
+      // If relevance-based sorting is needed, a dedicated search service
+      // like Algolia or Typesense would be the next step.
+
+      baseQuery = baseQuery.limit(_limit);
 
       if (lastDoc != null) {
         baseQuery = baseQuery.startAfterDocument(lastDoc);
@@ -95,11 +90,6 @@ class KiotVietProductService {
           : null;
 
       return {'products': products, 'lastDoc': lastDocument};
-    } on FirebaseException catch (e) {
-      print(
-        'A Firebase error occurred while searching products: ${e.code} - ${e.message}',
-      );
-      return {'products': [], 'lastDoc': null};
     } catch (e) {
       print('An unexpected error occurred while searching products: $e');
       return {'products': [], 'lastDoc': null};

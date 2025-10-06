@@ -4,23 +4,8 @@
 
 import { fetchAllKiotVietData } from '../api/kiotviet';
 import { batchWriteToFirestore } from '../api/firestore_rest';
+import { parseKiotVietDate } from '../core/date';
 
-/**
- * Parses a date string from KiotViet API format (e.g., "/Date(1609459200000+0700)/")
- * into a JavaScript Date object.
- * @param {string | null | undefined} kiotVietDate The date string from KiotViet.
- * @returns {Date | null} A Date object or null if parsing fails.
- */
-function parseKiotVietDate(kiotVietDate: string | null | undefined): Date | null {
-  if (!kiotVietDate || typeof kiotVietDate !== 'string') {
-    return null;
-  }
-  const match = kiotVietDate.match(/\/Date\((\d+).*\)\//);
-  if (match && match[1]) {
-    return new Date(parseInt(match[1], 10));
-  }
-  return null;
-}
 /**
  * Fetches all users from the KiotViet API and syncs them to the 'kiotviet_users'
  * collection in Firestore.
@@ -37,12 +22,8 @@ export function syncKiotVietUsersToFirestore() {
       const usersToSync = allUsers.map(user => {
         const syncedUser: any = { ...user };
 
-        const createdDate = parseKiotVietDate(user.createdDate);
-        if (createdDate) syncedUser.createdDate = createdDate;
-
-        const birthDate = parseKiotVietDate(user.birthDate);
-        if (birthDate) syncedUser.birthDate = birthDate;
-
+        syncedUser.createdDate = parseKiotVietDate(user.createdDate);
+        syncedUser.birthDate = parseKiotVietDate(user.birthDate);
         return syncedUser;
       });
 

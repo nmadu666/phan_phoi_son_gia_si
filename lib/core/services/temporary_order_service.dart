@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
-import 'package:phan_phoi_son_gia_si/core/services/app_state_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_customer.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
@@ -312,8 +311,9 @@ class TemporaryOrderService with ChangeNotifier {
   void overrideItemLineTotal(String cartItemId, double? newTotal) {
     final item = _findItemInActiveOrder(cartItemId);
     if (item != null) {
-      if (newTotal != null && newTotal < 0)
+      if (newTotal != null && newTotal < 0) {
         return; // Cannot have negative total
+      }
 
       item.overriddenLineTotal = newTotal;
 

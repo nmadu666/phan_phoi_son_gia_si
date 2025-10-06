@@ -8,7 +8,8 @@ class KiotVietCustomer {
   final String? address;
   final String? email;
   final num totalDebt;
-  final DateTime createdDate;
+  final DateTime? createdDate;
+  final DateTime? birthDate;
 
   KiotVietCustomer({
     required this.id,
@@ -18,7 +19,8 @@ class KiotVietCustomer {
     this.address,
     this.email,
     this.totalDebt = 0,
-    required this.createdDate,
+    this.createdDate,
+    this.birthDate,
   });
 
   factory KiotVietCustomer.fromFirestore(DocumentSnapshot doc) {
@@ -31,7 +33,12 @@ class KiotVietCustomer {
       address: data['address'],
       email: data['email'],
       totalDebt: data['totalDebt'] ?? 0,
-      createdDate: (data['createdDate'] as Timestamp).toDate(),
+      createdDate: data['createdDate'] != null
+          ? (data['createdDate'] as Timestamp).toDate()
+          : null,
+      birthDate: data['birthDate'] != null
+          ? (data['birthDate'] as Timestamp).toDate()
+          : null,
     );
   }
 
@@ -44,7 +51,8 @@ class KiotVietCustomer {
       'address': address,
       'email': email,
       'totalDebt': totalDebt,
-      'createdDate': createdDate.toIso8601String(),
+      'createdDate': createdDate?.toIso8601String(),
+      'birthDate': birthDate?.toIso8601String(),
     };
   }
 
@@ -57,7 +65,11 @@ class KiotVietCustomer {
       address: json['address'],
       email: json['email'],
       totalDebt: json['totalDebt'] ?? 0,
-      createdDate: DateTime.parse(json['createdDate']),
+      createdDate: json['createdDate'] != null
+          ? DateTime.parse(json['createdDate'])
+          : null,
+      birthDate:
+          json['birthDate'] != null ? DateTime.parse(json['birthDate']) : null,
     );
   }
 }

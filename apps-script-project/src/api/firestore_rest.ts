@@ -14,7 +14,7 @@ import {
  * @returns {string} The access token.
  * @private
  */
-function getServiceAccountOAuthToken_(): string {
+export function getServiceAccountOAuthToken_(): string {
   const cache = CacheService.getScriptCache();
   const cachedToken = cache.get('firestore_token');
   if (cachedToken) {
@@ -74,8 +74,9 @@ function getServiceAccountOAuthToken_(): string {
  * This uses the Firestore REST API for true batch operations.
  * @param {string} collectionName - The name of the Firestore collection.
  * @param {any[]} array - The array of objects to write. Each object must have an 'id' property.
+ * @param {boolean} [merge=false] - If true, performs a merge (update) instead of a full overwrite.
  */
-export function batchWriteToFirestore(collectionName: string, array: any[]): void {
+export function batchWriteToFirestore(collectionName: string, array: any[], merge: boolean = false): void {
   const token = getServiceAccountOAuthToken_();
   const projectId = getFirestoreProjectId();
   const baseUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents:commit`;
@@ -94,12 +95,23 @@ export function batchWriteToFirestore(collectionName: string, array: any[]): voi
         const docId = String(item.id);
         if (!docId || docId === 'undefined') return null;
 
-        return {
+        const writeOperation: { [key: string]: any } = {
           update: {
             name: `projects/${projectId}/databases/(default)/documents/${collectionName}/${docId}`,
             fields: wrapObjectForFirestore_(item),
           },
         };
+
+        if (merge) {
+          // For merge, we need to specify which fields to update.
+          // We exclude the 'id' field from the mask.
+          const fieldPaths = Object.keys(item).filter(k => k !== 'id');
+          if (fieldPaths.length > 0) {
+            writeOperation.updateMask = { fieldPaths: fieldPaths };
+          }
+        }
+
+        return writeOperation;
       })
       .filter(w => w !== null);
 
@@ -150,9 +162,10 @@ function wrapObjectForFirestore_(obj: { [key: string]: any }): {
     if (!obj.hasOwnProperty(key)) continue;
     const value = obj[key];
 
-    if (value === null || value === undefined) {
-      fields[key] = { nullValue: null };
-    } else if (typeof value === 'string') {
+    // Hoàn toàn bỏ qua các khóa có giá trị null hoặc undefined
+    if (value === null || value === undefined) continue;
+
+    if (typeof value === 'string') {
       if (value.startsWith('projects/')) {
         // Handle reference values
         fields[key] = { referenceValue: value };
@@ -173,11 +186,11 @@ function wrapObjectForFirestore_(obj: { [key: string]: any }): {
       fields[key] = {
         arrayValue: {
           values: value.map(item => {
-            // Simple array conversion, can be expanded
+            // This now correctly handles arrays of strings, which is what we need for search fields.
             if (typeof item === 'string') return { stringValue: item };
-            if (typeof item === 'number') return { doubleValue: item };
-            return { stringValue: String(item) };
-          }),
+            // Return null for unsupported types in the array to filter them out later.
+            return null;
+          }).filter(v => v !== null), // Filter out any null values from unsupported types
         },
       };
     } else if (typeof value === 'object') {
