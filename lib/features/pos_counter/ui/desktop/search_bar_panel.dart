@@ -98,13 +98,15 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
     });
 
     try {
-      print('--- DEBUG (UI): Calling service with query: "$query" ---');
+      // print('--- DEBUG (UI): Calling service with query: "$query" ---');
 
       final result = query.isEmpty
           ? await _kiotVietProductService.getRecentProducts()
           : await _kiotVietProductService.searchProducts(query);
 
       if (!mounted) return;
+      // Thêm một kiểm tra `mounted` nữa ở đây để đảm bảo an toàn tuyệt đối
+      // sau khi `await` hoàn thành.
 
       final newProducts = result['products'] as List<KiotVietProduct>;
       final lastDoc = result['lastDoc'];
@@ -148,6 +150,8 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
             );
 
       if (!mounted) return;
+
+      // Thêm kiểm tra `mounted` sau khi `await` hoàn thành.
 
       final moreProducts = result['products'] as List<KiotVietProduct>;
       final lastDoc = result['lastDoc'];
@@ -474,9 +478,9 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
             'Mã: ${product.code} - ĐVT: ${product.unit} - Giá: ${product.basePrice}',
           ),
           onTap: () {
-            print(
-              '--- DEBUG (UI): Tapping on product: ${product.name} (ID: ${product.id}) ---',
-            );
+            // print(
+            //   '--- DEBUG (UI): Tapping on product: ${product.name} (ID: ${product.id}) ---',
+            // );
             context
                 .read<TemporaryOrderService>()
                 .addKiotVietProductToActiveOrder(product);
@@ -487,6 +491,7 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
             // Sửa lỗi: Trì hoãn việc unfocus và ẩn portal để đảm bảo onTap được thực thi hoàn toàn.
             // Nếu không, portal sẽ bị hủy trước khi addKiotVietProductToActiveOrder kịp chạy.
             Future.delayed(Duration.zero, () {
+              if (!mounted) return;
               _searchFocusNode.unfocus();
               if (_portalController.isShowing) {
                 _portalController.hide();

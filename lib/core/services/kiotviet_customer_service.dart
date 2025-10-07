@@ -70,4 +70,46 @@ class KiotVietCustomerService {
       return {'customers': [], 'lastDoc': null};
     }
   }
+
+  /// Tạo một khách hàng mới trên KiotViet và lưu vào Firestore.
+  ///
+  /// [name]: Tên khách hàng (bắt buộc).
+  /// [contactNumber]: Số điện thoại.
+  /// [address]: Địa chỉ.
+  /// [branchId]: ID chi nhánh.
+  /// Trả về đối tượng [KiotVietCustomer] đã được tạo thành công.
+  Future<KiotVietCustomer> createCustomer({
+    required String name,
+    String? contactNumber,
+    String? address,
+    required int branchId,
+  }) async {
+    try {
+      // TODO: Tích hợp gọi API KiotViet để tạo khách hàng
+      // Dưới đây là logic giả lập
+      print('Gọi API KiotViet để tạo khách hàng: $name');
+
+      // Giả sử API KiotViet trả về một ID và mã khách hàng mới
+      final kiotVietId = DateTime.now().millisecondsSinceEpoch;
+      final kiotVietCode = 'KHT${kiotVietId.toString().substring(5)}';
+
+      final newCustomerData = {
+        'id': kiotVietId,
+        'code': kiotVietCode,
+        'name': name,
+        'contactNumber': contactNumber,
+        'address': address,
+        'branchId': branchId,
+        'createdDate': FieldValue.serverTimestamp(),
+      };
+
+      // TODO: Lưu khách hàng mới vào collection 'kiotviet_customers' trên Firestore
+      // await _firestore.collection('kiotviet_customers').add(newCustomerData);
+
+      return KiotVietCustomer.fromJson(newCustomerData);
+    } catch (e) {
+      print('Lỗi khi tạo khách hàng mới: $e');
+      rethrow;
+    }
+  }
 }

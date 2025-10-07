@@ -1,7 +1,6 @@
-import 'dart:async';
-
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
+import 'package:uuid/uuid.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_sale_channel.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_user.dart';
@@ -26,33 +25,18 @@ class CustomerCheckoutPanel extends StatefulWidget {
 }
 
 class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
-  final TextEditingController _searchController = TextEditingController();
-  final FocusNode _searchFocusNode = FocusNode();
   final KiotVietUserService _userService = KiotVietUserService();
   final KiotVietCustomerService _customerService = KiotVietCustomerService();
   final KiotVietSaleChannelService _saleChannelService =
       KiotVietSaleChannelService();
 
-  List<KiotVietCustomer> _searchResults = [];
   late Future<List<KiotVietUser>> _usersFuture;
   late Future<List<KiotVietSaleChannel>> _saleChannelsFuture;
-  bool _isLoading = false;
-  Timer? _debounce;
-  OverlayEntry? _overlayEntry;
-  final LayerLink _layerLink = LayerLink();
   DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_onSearchChanged);
-    _searchFocusNode.addListener(() {
-      if (_searchFocusNode.hasFocus) {
-        _showOverlay();
-      } else {
-        _hideOverlay();
-      }
-    });
     _usersFuture = _userService.getUsers();
     _saleChannelsFuture = _saleChannelService.getSaleChannels();
     _setDefaultSeller();
@@ -77,7 +61,10 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
             final defaultSeller = await appUserService.getUserFromRef(
               appUser!.kiotvietUserRef,
             );
-            orderService.setSellerForActiveOrder(defaultSeller);
+            // Guard against calling on a disposed widget.
+            if (mounted) {
+              orderService.setSellerForActiveOrder(defaultSeller);
+            }
           }
         });
       }
@@ -86,117 +73,7 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
 
   @override
   void dispose() {
-    _searchController.dispose();
-    _searchFocusNode.dispose();
-    _debounce?.cancel();
-    _hideOverlay();
     super.dispose();
-  }
-
-  void _onSearchChanged() {
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), () {
-      _performSearch(_searchController.text);
-    });
-  }
-
-  Future<void> _performSearch(String query) async {
-    if (query.isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _isLoading = false;
-      });
-      _overlayEntry?.markNeedsBuild();
-      return;
-    }
-    setState(() {
-      _isLoading = true;
-    });
-
-    final appState = context.read<AppStateService>();
-    final authService = context.read<AuthService>();
-    final appUserService = context.read<AppUserService>();
-
-    final branchId = appState.get<int>(AppStateService.selectedBranchIdKey);
-    final appUser = authService.currentUser != null
-        ? await appUserService.getUser(authService.currentUser!.uid)
-        : null;
-
-    final result = await _customerService.searchCustomers(
-      query,
-      currentUser: appUser,
-      branchId: branchId,
-    );
-    if (mounted) {
-      setState(() {
-        _searchResults = result['customers'];
-        _isLoading = false;
-      });
-      _overlayEntry?.markNeedsBuild();
-    }
-  }
-
-  void _showOverlay() {
-    if (_overlayEntry != null) return;
-    final overlay = Overlay.of(context);
-    final renderBox = context.findRenderObject() as RenderBox;
-    final size = renderBox.size;
-
-    _overlayEntry = OverlayEntry(
-      builder: (context) => Positioned(
-        width: size.width,
-        child: CompositedTransformFollower(
-          link: _layerLink,
-          showWhenUnlinked: false,
-          offset: Offset(0.0, size.height + 8.0),
-          child: Material(elevation: 4.0, child: _buildSuggestionsList()),
-        ),
-      ),
-    );
-
-    overlay.insert(_overlayEntry!);
-  }
-
-  void _hideOverlay() {
-    _overlayEntry?.remove();
-    _overlayEntry = null;
-  }
-
-  Widget _buildSuggestionsList() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_searchResults.isEmpty && _searchController.text.isNotEmpty) {
-      return const ListTile(title: Text('Không tìm thấy khách hàng'));
-    }
-    if (_searchResults.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 300),
-      child: ListView.builder(
-        padding: EdgeInsets.zero,
-        shrinkWrap: true,
-        itemCount: _searchResults.length,
-        itemBuilder: (context, index) {
-          final customer = _searchResults[index];
-          return ListTile(
-            title: Text(customer.name),
-            subtitle: Text(
-              '${customer.code} - ${customer.contactNumber ?? ''}',
-            ),
-            onTap: () {
-              context.read<TemporaryOrderService>().setCustomerForActiveOrder(
-                customer,
-              );
-              _searchController.clear();
-              _searchFocusNode.unfocus();
-            },
-          );
-        },
-      ),
-    );
   }
 
   @override
@@ -323,19 +200,230 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
         ),
       );
     } else {
-      return CompositedTransformTarget(
-        link: _layerLink,
-        child: TextField(
-          controller: _searchController,
-          focusNode: _searchFocusNode,
-          decoration: const InputDecoration(
-            labelText: 'Tìm khách hàng (Tên, SĐT, Mã)',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
-          ),
-        ),
+      return Autocomplete<KiotVietCustomer>(
+        // Hàm này trả về chuỗi để hiển thị trong TextField sau khi chọn.
+        displayStringForOption: (KiotVietCustomer option) => option.name,
+        optionsBuilder: (TextEditingValue textEditingValue) async {
+          if (textEditingValue.text.isEmpty) {
+            // Trả về một Future hoàn thành ở frame tiếp theo.
+            // Điều này ngăn Autocomplete đóng overlay ngay lập tức,
+            // cho phép onSelected có thời gian rebuild widget trước.
+            return Future.value(const Iterable<KiotVietCustomer>.empty());
+          }
+          // Lấy các service và giá trị cần thiết từ context TRƯỚC async gap.
+          final appState = context.read<AppStateService>();
+          final authService = context.read<AuthService>();
+          final appUserService = context.read<AppUserService>();
+
+          // Sử dụng các biến đã lấy, không dùng context sau await.
+          final branchId = appState.get<int>(
+            AppStateService.selectedBranchIdKey,
+          );
+          final appUser = authService.currentUser != null
+              ? await appUserService.getUser(authService.currentUser!.uid)
+              : null;
+
+          final Map<String, dynamic> result = await _customerService
+              .searchCustomers(
+                textEditingValue.text,
+                currentUser: appUser,
+                branchId: branchId,
+              );
+          final customers = result['customers'] as List<KiotVietCustomer>;
+
+          // Nếu không tìm thấy khách hàng, thêm tùy chọn "Tạo mới"
+          if (textEditingValue.text.isNotEmpty && customers.isEmpty) {
+            return [
+              KiotVietCustomer(
+                id: -1, // ID đặc biệt để nhận biết hành động tạo mới
+                code: 'CREATE_NEW',
+                name: 'Tạo mới khách hàng "${textEditingValue.text}"',
+              ),
+            ];
+          }
+
+          return customers;
+        },
+        // Hàm này được gọi khi người dùng chọn một khách hàng từ danh sách.
+        onSelected: (KiotVietCustomer selection) {
+          // Lấy service ra trước để tránh sử dụng context sau async gap.
+          final orderService = context.read<TemporaryOrderService>();
+
+          if (selection.id == -1) {
+            // Xử lý tạo khách hàng mới
+            _showCreateCustomerDialog(
+              selection.name
+                  .replaceAll('Tạo mới khách hàng "', '')
+                  .replaceAll('"', ''),
+              orderService, // Truyền service vào hàm
+            );
+          } else {
+            // Xử lý chọn khách hàng bình thường
+            Future.delayed(Duration.zero, () {
+              orderService.setCustomerForActiveOrder(selection);
+            });
+          }
+        },
+        // Tùy chỉnh giao diện cho danh sách gợi ý
+        optionsViewBuilder: (context, onSelected, options) {
+          // Lấy RenderBox của TextField để xác định chiều rộng cho danh sách gợi ý
+          final RenderBox? fieldBox = context.findRenderObject() as RenderBox?;
+          final double fieldWidth =
+              fieldBox?.size.width ?? 300; // Giá trị mặc định
+
+          return Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 4.0,
+              child: SizedBox(
+                width:
+                    fieldWidth, // Đặt chiều rộng bằng với chiều rộng của TextField
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: options.length,
+                  itemBuilder: (BuildContext context, int index) {
+                    final KiotVietCustomer option = options.elementAt(index);
+                    return _buildCustomerOptionTile(option, onSelected);
+                  },
+                ),
+              ),
+            ),
+          );
+        },
+        // Tùy chỉnh giao diện cho TextField
+        fieldViewBuilder:
+            (context, textEditingController, focusNode, onFieldSubmitted) {
+              return TextField(
+                controller: textEditingController,
+                focusNode: focusNode,
+                decoration: const InputDecoration(
+                  labelText: 'Tìm khách hàng (Tên, SĐT, Mã)',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (_) => onFieldSubmitted(),
+              );
+            },
       );
     }
+  }
+
+  /// Widget để hiển thị một khách hàng trong danh sách gợi ý.
+  Widget _buildCustomerOptionTile(
+    KiotVietCustomer option,
+    AutocompleteOnSelected<KiotVietCustomer> onSelected,
+  ) {
+    return InkWell(
+      onTap: () => onSelected(option),
+      child: ListTile(
+        // Nếu là tùy chọn "Tạo mới", hiển thị icon và style khác
+        leading: option.id == -1
+            ? const Icon(Icons.add_circle_outline, color: Colors.green)
+            : null,
+        title: Text(
+          option.name,
+          style: option.id == -1
+              ? const TextStyle(
+                  fontStyle: FontStyle.italic,
+                  color: Colors.green,
+                )
+              : null,
+        ),
+        subtitle: Text(
+          // Không hiển thị subtitle cho tùy chọn "Tạo mới"
+          option.id == -1
+              ? 'Nhấn để thêm khách hàng mới vào hệ thống'
+              : 'Mã: ${option.code} - SĐT: ${option.contactNumber ?? 'N/A'}',
+        ),
+      ),
+    );
+  }
+
+  /// Hiển thị dialog để tạo khách hàng mới.
+  void _showCreateCustomerDialog(
+    String initialName,
+    TemporaryOrderService orderService, // Nhận service như một tham số
+  ) {
+    final nameController = TextEditingController(text: initialName);
+    final phoneController = TextEditingController();
+    final addressController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Tạo khách hàng mới'),
+          content: Form(
+            key: formKey,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Tên khách hàng *',
+                    ),
+                    validator: (value) => (value == null || value.isEmpty)
+                        ? 'Vui lòng nhập tên'
+                        : null,
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: phoneController,
+                    decoration: const InputDecoration(
+                      labelText: 'Số điện thoại',
+                    ),
+                    keyboardType: TextInputType.phone,
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: addressController,
+                    decoration: const InputDecoration(labelText: 'Địa chỉ'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Hủy'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                // Chỉ thực hiện nếu form hợp lệ
+                if (!formKey.currentState!.validate()) {
+                  return;
+                }
+
+                // 1. Đóng dialog ngay lập tức để giao diện người dùng phản hồi.
+                Navigator.of(dialogContext).pop();
+
+                // 2. Trì hoãn việc tạo và gán khách hàng để Autocomplete có thời gian đóng overlay.
+                Future.delayed(Duration.zero, () {
+                  // Linter không cảnh báo vì orderService đã được truyền vào
+                  // Tạo một khách hàng tạm thời với ID duy nhất (sử dụng uuid)
+                  // và các thông tin người dùng đã nhập.
+                  final newCustomer = KiotVietCustomer(
+                    id: -2, // ID đặc biệt cho khách hàng tạm, chưa có trên KiotViet
+                    code: const Uuid().v4(), // Dùng UUID làm mã tạm thời
+                    name: nameController.text,
+                    contactNumber: phoneController.text,
+                    address: addressController.text,
+                  );
+
+                  // Gán khách hàng tạm này vào đơn hàng hiện tại
+                  orderService.setCustomerForActiveOrder(newCustomer);
+                });
+              },
+              child: const Text('Lưu'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Widget _buildSellerDropdown(KiotVietUser? selectedSeller) {
