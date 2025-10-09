@@ -17,12 +17,13 @@ class BranchSelector extends StatefulWidget {
 
 class _BranchSelectorState extends State<BranchSelector> {
   final KiotVietBranchService _branchService = KiotVietBranchService();
-  late Future<List<KiotVietBranch>> _branchesFuture;
+  late Future<List<KiotVietBranch>> _initializationFuture;
 
   @override
   void initState() {
     super.initState();
-    _branchesFuture = _branchService.getBranches();
+    // Combine all initialization logic into a single future.
+    _initializationFuture = _initializeAndGetBranches();
   }
 
   @override
@@ -48,7 +49,7 @@ class _BranchSelectorState extends State<BranchSelector> {
     }
 
     return FutureBuilder<List<KiotVietBranch>>(
-      future: _branchesFuture,
+      future: _initializationFuture,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
           return const SizedBox(
@@ -58,10 +59,10 @@ class _BranchSelectorState extends State<BranchSelector> {
           );
         }
         final allBranches = snapshot.data!;
-        _initializeSelectedBranch(context, allBranches);
 
-        final selectedBranchId =
-            appState.get<int>(AppStateService.selectedBranchIdKey);
+        final selectedBranchId = appState.get<int>(
+          AppStateService.selectedBranchIdKey,
+        );
 
         final currentBranchName = allBranches
             .firstWhere(
@@ -74,10 +75,7 @@ class _BranchSelectorState extends State<BranchSelector> {
           onTap: () => _showBranchMenu(context, allBranches),
           borderRadius: BorderRadius.circular(8),
           child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 8.0,
-              vertical: 4.0,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -93,27 +91,58 @@ class _BranchSelectorState extends State<BranchSelector> {
     );
   }
 
-  /// Khởi tạo chi nhánh được chọn.
-  /// Ưu tiên lấy từ AppState, nếu không có thì lấy từ AppUser và lưu vào AppState.
-  void _initializeSelectedBranch(
-      BuildContext context, List<KiotVietBranch> allBranches) async {
-    final appState = context.read<AppStateService>();
-    final appUserService = context.read<AppUserService>();
-    final authService = context.read<AuthService>();
+  /// Initializes the component by fetching all branches and setting the default
+  /// selected branch if one isn't already set in the app state.
+  /// This ensures all async initialization happens in one place, not in `build`.
+  Future<List<KiotVietBranch>> _initializeAndGetBranches() async {
+    // Use `WidgetsBinding.instance.addPostFrameCallback` to safely interact
+    // with providers after the first frame has been built.
+    await WidgetsBinding.instance.endOfFrame;
 
-    // Chỉ thực hiện khi chưa có chi nhánh nào được chọn trong AppState
-    if (appState.get(AppStateService.selectedBranchIdKey) == null &&
-        authService.currentUser != null) {
-      final appUser = await appUserService.getUser(authService.currentUser!.uid);
-      final defaultBranch = await appUserService.getBranchFromRef(appUser?.kiotvietBranchRef);
-      if (defaultBranch != null) {
-        // Dùng `persisted: true` để lưu lại cho lần mở app sau
-        appState.set(AppStateService.selectedBranchIdKey, defaultBranch.id, persisted: true);
+    if (!mounted) return [];
+
+    try {
+      // Fetch all available branches first.
+      final allBranches = await _branchService.getBranches();
+
+      if (!mounted) return allBranches;
+
+      final appState = context.read<AppStateService>();
+      final appUserService = context.read<AppUserService>();
+      final authService = context.read<AuthService>();
+
+      // If no branch is selected in the global state, determine the default one.
+      if (appState.get(AppStateService.selectedBranchIdKey) == null &&
+          authService.currentUser != null) {
+        final appUser = await appUserService.getUser(
+          authService.currentUser!.uid,
+        );
+        final defaultBranch = await appUserService.getBranchFromRef(
+          appUser?.kiotvietBranchRef,
+        );
+
+        if (mounted && defaultBranch != null) {
+          // Set the default branch in the app state.
+          // No need to await this, as the FutureBuilder will handle the rebuild.
+          appState.set(
+            AppStateService.selectedBranchIdKey,
+            defaultBranch.id,
+            persisted: true,
+          );
+        }
       }
+      return allBranches;
+    } catch (e) {
+      debugPrint('Error initializing branches: $e');
+      // Return an empty list or rethrow to show an error in the UI.
+      return [];
     }
   }
 
-  void _showBranchMenu(BuildContext context, List<KiotVietBranch> allBranches) async {
+  void _showBranchMenu(
+    BuildContext context,
+    List<KiotVietBranch> allBranches,
+  ) async {
     if (!mounted) return;
 
     final RenderBox button = context.findRenderObject() as RenderBox;
@@ -145,8 +174,9 @@ class _BranchSelectorState extends State<BranchSelector> {
     // Nếu người dùng chọn một chi nhánh mới, kiểm tra giỏ hàng trước khi cập nhật
     if (selectedBranchId != null) {
       final appState = context.read<AppStateService>();
-      final currentBranchId =
-          appState.get<int>(AppStateService.selectedBranchIdKey);
+      final currentBranchId = appState.get<int>(
+        AppStateService.selectedBranchIdKey,
+      );
 
       // Chỉ xử lý nếu người dùng chọn một chi nhánh khác với chi nhánh hiện tại
       if (selectedBranchId == currentBranchId) {
@@ -154,21 +184,20 @@ class _BranchSelectorState extends State<BranchSelector> {
       }
 
       final orderService = context.read<TemporaryOrderService>();
-      final activeOrder = orderService.orders.firstWhere(
-        (o) => o.id == orderService.activeOrderId,
-        orElse: () => TemporaryOrder(id: '', name: ''),
-      );
+      final activeOrder = orderService.activeOrder;
 
       bool canSwitch = true;
       // Nếu giỏ hàng có sản phẩm, hiển thị cảnh báo
-      if (activeOrder.items.isNotEmpty) {
-        canSwitch = await showDialog<bool>(
+      if (activeOrder != null && activeOrder.items.isNotEmpty) {
+        canSwitch =
+            await showDialog<bool>(
               context: context,
               builder: (BuildContext dialogContext) {
                 return AlertDialog(
                   title: const Text('Cảnh báo'),
                   content: const Text(
-                      'Đơn hàng tạm hiện tại đang có sản phẩm. Bạn có chắc chắn muốn chuyển chi nhánh không?'),
+                    'Đơn hàng tạm hiện tại đang có sản phẩm. Bạn có chắc chắn muốn chuyển chi nhánh không?',
+                  ),
                   actions: <Widget>[
                     TextButton(
                       child: const Text('Hủy'),
@@ -186,11 +215,17 @@ class _BranchSelectorState extends State<BranchSelector> {
       }
 
       if (canSwitch) {
-        appState.set(
-          AppStateService.selectedBranchIdKey,
-          selectedBranchId,
-          persisted: true, // Lưu lựa chọn này vào local storage
-        );
+        // Delay the state update to the next frame to avoid conflict with
+        // the closing dialog/menu overlays. Using a post-frame callback is safer
+        // than Future.delayed(Duration.zero) as it ensures the current frame's
+        // build and layout phases are complete.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          appState.set(
+            AppStateService.selectedBranchIdKey,
+            selectedBranchId,
+            persisted: true, // Lưu lựa chọn này vào local storage
+          );
+        });
       }
     }
   }

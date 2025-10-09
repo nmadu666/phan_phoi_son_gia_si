@@ -10,6 +10,8 @@ class KiotVietCustomer {
   final num totalDebt;
   final DateTime? createdDate;
   final DateTime? birthDate;
+  final int? branchId;
+  final List<String> searchKeywords;
 
   KiotVietCustomer({
     required this.id,
@@ -21,6 +23,8 @@ class KiotVietCustomer {
     this.totalDebt = 0,
     this.createdDate,
     this.birthDate,
+    this.branchId,
+    this.searchKeywords = const [],
   });
 
   factory KiotVietCustomer.fromFirestore(DocumentSnapshot doc) {
@@ -39,6 +43,9 @@ class KiotVietCustomer {
       birthDate: data['birthDate'] != null
           ? (data['birthDate'] as Timestamp).toDate()
           : null,
+      branchId: data['branchId'],
+      // Safely cast the list to prevent runtime errors.
+      searchKeywords: List.from(data['search_keywords'] ?? []).cast<String>(),
     );
   }
 
@@ -53,6 +60,8 @@ class KiotVietCustomer {
       'totalDebt': totalDebt,
       'createdDate': createdDate?.toIso8601String(),
       'birthDate': birthDate?.toIso8601String(),
+      'branchId': branchId,
+      'searchKeywords': searchKeywords,
     };
   }
 
@@ -68,8 +77,11 @@ class KiotVietCustomer {
       createdDate: json['createdDate'] != null
           ? DateTime.parse(json['createdDate'])
           : null,
-      birthDate:
-          json['birthDate'] != null ? DateTime.parse(json['birthDate']) : null,
+      birthDate: json['birthDate'] != null
+          ? DateTime.parse(json['birthDate'])
+          : null,
+      branchId: json['branchId'],
+      searchKeywords: List.from(json['searchKeywords'] ?? []).cast<String>(),
     );
   }
 }
