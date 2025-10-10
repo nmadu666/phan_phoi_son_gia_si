@@ -9,9 +9,9 @@ class KiotVietOrder {
   final double total;
   final double totalPayment;
   final int status;
-  final String statusValue;
+  final String? statusValue;
   final DateTime createdDate;
-  final DateTime modifiedDate;
+  final DateTime? modifiedDate;
   final KiotVietOrderDelivery? orderDelivery;
   final List<KiotVietOrderDetail> orderDetails;
 
@@ -24,9 +24,9 @@ class KiotVietOrder {
     required this.total,
     required this.totalPayment,
     required this.status,
-    required this.statusValue,
+    this.statusValue,
     required this.createdDate,
-    required this.modifiedDate,
+    this.modifiedDate,
     this.orderDelivery,
     required this.orderDetails,
   });
@@ -43,9 +43,11 @@ class KiotVietOrder {
       total: (json['total'] ?? 0).toDouble(),
       totalPayment: (json['totalPayment'] ?? 0).toDouble(),
       status: json['status'],
-      statusValue: json['statusValue'],
+      statusValue: json['statusValue'] ?? 'N/A',
       createdDate: DateTime.parse(json['createdDate']),
-      modifiedDate: DateTime.parse(json['modifiedDate']),
+      modifiedDate: json['modifiedDate'] != null
+          ? DateTime.tryParse(json['modifiedDate'])
+          : null,
       orderDelivery: json['orderDelivery'] != null
           ? KiotVietOrderDelivery.fromJson(json['orderDelivery'])
           : null,
@@ -58,8 +60,8 @@ class KiotVietOrder {
 
 class KiotVietOrderDetail {
   final int productId;
-  final String productCode;
-  final String productName;
+  final String? productCode;
+  final String? productName;
   final double quantity;
   final double price;
   final double? discountRatio;
@@ -67,8 +69,8 @@ class KiotVietOrderDetail {
 
   KiotVietOrderDetail({
     required this.productId,
-    required this.productCode,
-    required this.productName,
+    this.productCode,
+    this.productName,
     required this.quantity,
     required this.price,
     this.discountRatio,
@@ -78,8 +80,8 @@ class KiotVietOrderDetail {
   factory KiotVietOrderDetail.fromJson(Map<String, dynamic> json) {
     return KiotVietOrderDetail(
       productId: json['productId'],
-      productCode: json['productCode'],
-      productName: json['productName'],
+      productCode: json['productCode'], // Can be null
+      productName: json['productName'], // Can be null
       quantity: (json['quantity'] ?? 0).toDouble(),
       price: (json['price'] ?? 0).toDouble(),
       discountRatio: (json['discountRatio'])?.toDouble(),
@@ -118,4 +120,3 @@ class KiotVietOrderDelivery {
     );
   }
 }
-
