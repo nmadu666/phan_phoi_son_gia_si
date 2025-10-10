@@ -8,12 +8,15 @@ class AuthService with ChangeNotifier {
 
   // Constructor để có thể inject dependency, hữu ích cho việc test
   AuthService({FirebaseAuth? firebaseAuth})
-      : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
-        _appUserService = AppUserService() {
+    : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
+      _appUserService = AppUserService() {
+    // Sử dụng Future.microtask để đảm bảo việc đăng nhập tự động được thực thi
+    // một cách an toàn ngay sau khi service được khởi tạo, thay vì gọi
+    // trực tiếp một hàm async trong constructor.
     if (kDebugMode) {
-      // Tự động đăng nhập khi ở chế độ debug
-      // THAY THẾ email và password bằng tài khoản debug của bạn
-      signIn(email: 'admin@ppsgs.com', password: '12345678');
+      Future.microtask(() {
+        signIn(email: 'admin@ppsgs.com', password: '12345678');
+      });
     }
   }
 

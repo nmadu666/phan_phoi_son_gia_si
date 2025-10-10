@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_branch.dart';
-import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/auth_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_branch_service.dart';

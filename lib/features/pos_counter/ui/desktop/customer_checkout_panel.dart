@@ -1,8 +1,8 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_sale_channel.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_user.dart';
@@ -185,50 +185,33 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
   }
 
   Widget _buildCustomerSearch(KiotVietCustomer? customer) {
-    if (customer != null) {
-      return InputDecorator(
-        decoration: const InputDecoration(
-          border: OutlineInputBorder(),
-          contentPadding: EdgeInsets.fromLTRB(12, 4, 0, 4),
+    // Always use the Autocomplete widget, but pass the initial customer value.
+    // The Autocomplete widget will handle its own display logic.
+    return Row(
+      children: [
+        Expanded(
+          child: _CustomerAutocomplete(
+            initialValue: customer,
+            customerService: _customerService,
+            onCustomerSelected: (selectedCustomer) {
+              context.read<TemporaryOrderService>().setCustomerForActiveOrder(
+                selectedCustomer,
+              );
+            },
+            onCustomerRemoved: () {
+              // The text field is cleared, which triggers the parent to rebuild
+              // with a null customer, effectively removing them.
+              context
+                  .read<TemporaryOrderService>()
+                  .removeCustomerFromActiveOrder();
+            },
+            onCreateNewCustomer: (name) {
+              _showCreateCustomerDialog(name);
+            },
+          ),
         ),
-        child: Row(
-          children: [
-            const Icon(Icons.person, size: 20, color: Colors.blue),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(customer.name, overflow: TextOverflow.ellipsis),
-            ),
-            IconButton(
-              icon: const Icon(Icons.close, size: 20),
-              onPressed: () {
-                context
-                    .read<TemporaryOrderService>()
-                    .removeCustomerFromActiveOrder();
-              },
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(),
-            ),
-          ],
-        ),
-      );
-    } else {
-      return _CustomerAutocomplete(
-        customerService: _customerService,
-        onCustomerSelected: (customer) {
-          // Use a post-frame callback for maximum safety when updating state
-          // after an overlay (from Autocomplete) has been dismissed.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            context.read<TemporaryOrderService>().setCustomerForActiveOrder(customer);
-          });
-        },
-        onCreateNewCustomer: (name) {
-          // The dialog is also an overlay, so a delay is safest.
-          Future.delayed(Duration.zero, () {
-            _showCreateCustomerDialog(name);
-          });
-        },
-      );
-    }
+      ],
+    );
   }
 
   /// Hiển thị dialog để tạo khách hàng mới.
@@ -340,7 +323,9 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
                             // to prevent the disposed EngineFlutterView error.
                             // Using a post-frame callback is the safest way.
                             WidgetsBinding.instance.addPostFrameCallback((_) {
-                              orderService.setCustomerForActiveOrder(newCustomer);
+                              orderService.setCustomerForActiveOrder(
+                                newCustomer,
+                              );
                             });
                           } catch (e) {
                             // Xử lý lỗi nếu có
@@ -570,15 +555,20 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
 /// A dedicated, stateful widget to handle the customer search autocomplete logic.
 /// This encapsulates debouncing and state management for search results,
 /// optimizing performance by reducing Firestore reads.
+/// It now also handles its own display state (showing selected customer vs. search).
 class _CustomerAutocomplete extends StatefulWidget {
+  final KiotVietCustomer? initialValue;
   final KiotVietCustomerService customerService;
   final ValueChanged<KiotVietCustomer> onCustomerSelected;
+  final VoidCallback onCustomerRemoved;
   final ValueChanged<String> onCreateNewCustomer;
 
   const _CustomerAutocomplete({
+    this.initialValue,
     required this.customerService,
     required this.onCustomerSelected,
     required this.onCreateNewCustomer,
+    required this.onCustomerRemoved,
   });
 
   @override
@@ -587,17 +577,62 @@ class _CustomerAutocomplete extends StatefulWidget {
 
 class __CustomerAutocompleteState extends State<_CustomerAutocomplete> {
   Timer? _debounce;
-  // We manage the search results in the state of this widget.
-  Iterable<KiotVietCustomer> _lastOptions = const Iterable.empty();
+  final TextEditingController _textEditingController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  final ScrollController _suggestionsScrollController = ScrollController();
+
+  // State for pagination and loading
+  List<KiotVietCustomer> _searchResults = [];
+  DocumentSnapshot? _lastDocument;
+  bool _isLoading = false;
+  bool _isLazyLoading = false;
+  bool _hasMore = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // Add a listener to rebuild the options view when text changes,
+    // which is necessary to show/hide the "Create New" button.
+    _textEditingController.addListener(() => setState(() {}));
+    _updateControllerWithInitialValue();
+    _suggestionsScrollController.addListener(_onSuggestionsScroll);
+  }
+
+  @override
+  void didUpdateWidget(covariant _CustomerAutocomplete oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If the parent widget passes a different customer (or null),
+    // update the text field to reflect the change.
+    if (widget.initialValue != oldWidget.initialValue) {
+      _updateControllerWithInitialValue();
+    }
+  }
+
+  void _updateControllerWithInitialValue() {
+    _textEditingController.text = widget.initialValue?.name ?? '';
+  }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _textEditingController.dispose();
+    _focusNode.dispose();
+    _suggestionsScrollController.dispose();
     super.dispose();
   }
 
-  Future<Iterable<KiotVietCustomer>> _search(String query) async {
-    if (!mounted) return const Iterable.empty();
+  void _onSuggestionsScroll() {
+    if (_suggestionsScrollController.position.pixels ==
+            _suggestionsScrollController.position.maxScrollExtent &&
+        _hasMore &&
+        !_isLazyLoading) {
+      _fetchMoreData(_textEditingController.text);
+    }
+  }
+
+  Future<void> _fetchInitialData(String query) async {
+    if (_isLoading) return;
 
     // Get services and state from context BEFORE the async gap.
     final appState = context.read<AppStateService>();
@@ -605,67 +640,125 @@ class __CustomerAutocompleteState extends State<_CustomerAutocomplete> {
     final appUserService = context.read<AppUserService>();
 
     final branchId = appState.get<int>(AppStateService.selectedBranchIdKey);
-    final appUser = authService.currentUser != null
-        ? await appUserService.getUser(authService.currentUser!.uid)
-        : null;
 
-    final result = await widget.customerService.searchCustomers(
-      query,
-      currentUser: appUser,
-      branchId: branchId,
-    );
+    setState(() {
+      _isLoading = true;
+      _searchResults = [];
+      _lastDocument = null;
+      _hasMore = true;
+      _error = null;
+    });
 
-    final customers = result['customers'] as List<KiotVietCustomer>;
+    try {
+      final appUser = authService.currentUser != null
+          ? await appUserService.getUser(authService.currentUser!.uid)
+          : null;
 
-    // If no customers are found, add the "Create New" option.
-    if (query.isNotEmpty && customers.isEmpty) {
-      return [
-        KiotVietCustomer(
-          id: -1,
-          code: 'CREATE_NEW',
-          name: 'Tạo mới khách hàng "$query"',
-        ),
-      ];
+      final result = await widget.customerService.searchCustomers(
+        query,
+        currentUser: appUser,
+        branchId: branchId,
+      );
+
+      if (!mounted) return;
+
+      final newCustomers = result['customers'] as List<KiotVietCustomer>;
+      final lastDoc = result['lastDoc'] as DocumentSnapshot?;
+
+      setState(() {
+        _searchResults = newCustomers;
+        _lastDocument = lastDoc;
+        _hasMore = newCustomers.length == 15; // Assuming limit is 15
+      });
+    } catch (e) {
+      debugPrint('Failed to search customers: $e');
+      if (mounted) {
+        setState(() => _error = 'Lỗi tải dữ liệu. Vui lòng thử lại.');
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
+  }
 
-    return customers;
+  Future<void> _fetchMoreData(String query) async {
+    if (_isLazyLoading || !_hasMore || _lastDocument == null) return;
+
+    setState(() => _isLazyLoading = true);
+
+    try {
+      final appState = context.read<AppStateService>();
+      final authService = context.read<AuthService>();
+      final appUserService = context.read<AppUserService>();
+      final branchId = appState.get<int>(AppStateService.selectedBranchIdKey);
+      final appUser = authService.currentUser != null
+          ? await appUserService.getUser(authService.currentUser!.uid)
+          : null;
+
+      final result = await widget.customerService.searchCustomers(
+        query,
+        currentUser: appUser,
+        branchId: branchId,
+        lastDoc: _lastDocument,
+      );
+
+      if (!mounted) return;
+
+      final moreCustomers = result['customers'] as List<KiotVietCustomer>;
+      final lastDoc = result['lastDoc'] as DocumentSnapshot?;
+
+      setState(() {
+        _searchResults.addAll(moreCustomers);
+        _lastDocument = lastDoc;
+        _hasMore = moreCustomers.length == 15;
+      });
+    } catch (e) {
+      debugPrint('Error fetching more customers: $e');
+      if (mounted) {
+        setState(() => _error = 'Lỗi tải thêm dữ liệu.');
+      }
+    } finally {
+      if (mounted) setState(() => _isLazyLoading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Autocomplete<KiotVietCustomer>(
+      textEditingController: _textEditingController,
+      focusNode: _focusNode,
       displayStringForOption: (option) => option.name,
       optionsBuilder: (TextEditingValue textEditingValue) {
+        // When the text field is cleared, schedule a state update for after the build.
         if (textEditingValue.text.isEmpty) {
+          if (_isLoading || _error != null || _searchResults.isNotEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              setState(() {
+                _searchResults.clear();
+                _isLoading = false;
+                _error = null;
+              });
+            });
+          }
           return const Iterable<KiotVietCustomer>.empty();
         }
 
-        // Debounce logic
         if (_debounce?.isActive ?? false) _debounce!.cancel();
-        final completer = Completer<Iterable<KiotVietCustomer>>();
-        _debounce = Timer(const Duration(milliseconds: 500), () async {
-          if (!mounted) return;
-          final options = await _search(textEditingValue.text);
-          _lastOptions = options; // Cache the results
-          if (!completer.isCompleted) {
-            completer.complete(options);
-          }
+        _debounce = Timer(const Duration(milliseconds: 500), () {
+          _fetchInitialData(textEditingValue.text);
         });
 
-        // While waiting for the debounce timer, return the last known results
-        // to prevent the options view from flickering or disappearing.
-        return _lastOptions;
+        return _searchResults;
       },
       onSelected: (selection) {
-        if (selection.id == -1) {
-          widget.onCreateNewCustomer(
-            selection.name
-                .replaceAll('Tạo mới khách hàng "', '')
-                .replaceAll('"', ''),
-          );
-        } else {
+        // Use a post-frame callback for maximum safety when updating state
+        // after an overlay (from Autocomplete) has been dismissed.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
           widget.onCustomerSelected(selection);
-        }
+          // After selection, unfocus to hide the keyboard and options view.
+          // The text field will be updated by didUpdateWidget.
+          _focusNode.unfocus();
+        });
       },
       optionsViewBuilder: (context, onSelected, options) {
         final RenderBox? fieldBox = context.findRenderObject() as RenderBox?;
@@ -675,32 +768,150 @@ class __CustomerAutocompleteState extends State<_CustomerAutocomplete> {
           alignment: Alignment.topLeft,
           child: Material(
             elevation: 4.0,
+            borderRadius: const BorderRadius.all(Radius.circular(8)),
             child: SizedBox(
               width: fieldWidth,
-              child: ListView.builder(
-                padding: EdgeInsets.zero,
-                itemCount: options.length,
-                itemBuilder: (context, index) {
-                  final option = options.elementAt(index);
-                  return _buildCustomerOptionTile(option, onSelected);
-                },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_isLoading)
+                    const Padding(
+                      padding: EdgeInsets.all(16.0),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.error_outline,
+                            color: Colors.red,
+                            size: 32,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _error!,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.red.shade700),
+                          ),
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: () {
+                              // Manually trigger a search retry
+                              final currentText = _textEditingController.text;
+                              _textEditingController.clear();
+                              // Use a post-frame callback to safely update the controller
+                              // and trigger a new search.
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _textEditingController.text = currentText;
+                              });
+                            },
+                            child: const Text('Thử lại'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (options.isEmpty &&
+                      _textEditingController.text.isNotEmpty &&
+                      !_isLoading)
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: Center(
+                        child: Text(
+                          'Không tìm thấy khách hàng nào.',
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                      ),
+                    )
+                  else
+                    Flexible(
+                      child: ListView.builder(
+                        controller: _suggestionsScrollController,
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        itemCount: _searchResults.length + (_hasMore ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          if (index == _searchResults.length) {
+                            return const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+                          }
+                          return _buildCustomerOptionTile(
+                            _searchResults[index],
+                            onSelected,
+                          );
+                        },
+                      ),
+                    ),
+                  // Always show "Create new" button if there's text, regardless of loading state.
+                  if (_textEditingController.text.isNotEmpty) ...[
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(
+                        Icons.add_circle_outline,
+                        color: Colors.green,
+                      ),
+                      title: Text(
+                        'Tạo mới khách hàng "${_textEditingController.text}"',
+                        style: const TextStyle(
+                          fontStyle: FontStyle.italic,
+                          color: Colors.green,
+                        ),
+                      ),
+                      onTap: () {
+                        final newName = _textEditingController.text;
+                        // Unfocus and clear to reset the UI state, then
+                        // call the callback to create the new customer.
+                        _focusNode.unfocus();
+                        _textEditingController.clear();
+                        widget.onCreateNewCustomer(newName);
+                      },
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
         );
       },
-      fieldViewBuilder: (context, controller, focusNode, onSubmitted) {
-        return TextField(
-          controller: controller,
-          focusNode: focusNode,
-          decoration: const InputDecoration(
-            labelText: 'Tìm khách hàng (Tên, SĐT, Mã)',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (_) => onSubmitted(),
-        );
-      },
+      fieldViewBuilder:
+          (context, textEditingController, focusNode, onFieldSubmitted) {
+            final bool hasCustomer = widget.initialValue != null;
+
+            return TextField(
+              controller: textEditingController,
+              focusNode: focusNode,
+              readOnly: hasCustomer,
+              decoration: InputDecoration(
+                labelText: 'Tìm khách hàng (Tên, SĐT, Mã)',
+                border: const OutlineInputBorder(),
+                prefixIcon: Icon(hasCustomer ? Icons.person : Icons.search),
+                suffixIcon: hasCustomer
+                    ? IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () {
+                          // Clear the text field and notify the parent to remove the customer.
+                          textEditingController.clear();
+                          widget.onCustomerRemoved();
+                        },
+                      )
+                    : null,
+              ),
+              onTap: () {
+                if (hasCustomer) {
+                  // If a customer is already selected, tapping the field should
+                  // clear it and prepare for a new search.
+                  textEditingController.clear();
+                  focusNode.requestFocus();
+                }
+              },
+            );
+          },
     );
   }
 
@@ -712,24 +923,9 @@ class __CustomerAutocompleteState extends State<_CustomerAutocomplete> {
     return InkWell(
       onTap: () => onSelected(option),
       child: ListTile(
-        // Nếu là tùy chọn "Tạo mới", hiển thị icon và style khác
-        leading: option.id == -1
-            ? const Icon(Icons.add_circle_outline, color: Colors.green)
-            : null,
-        title: Text(
-          option.name,
-          style: option.id == -1
-              ? const TextStyle(
-                  fontStyle: FontStyle.italic,
-                  color: Colors.green,
-                )
-              : null,
-        ),
+        title: Text(option.name),
         subtitle: Text(
-          // Không hiển thị subtitle cho tùy chọn "Tạo mới"
-          option.id == -1
-              ? 'Nhấn để thêm khách hàng mới vào hệ thống'
-              : 'Mã: ${option.code} - SĐT: ${option.contactNumber ?? 'N/A'}',
+          'Mã: ${option.code} - SĐT: ${option.contactNumber ?? 'N/A'}',
         ),
       ),
     );
