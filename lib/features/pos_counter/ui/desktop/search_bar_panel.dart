@@ -7,6 +7,7 @@ import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart'
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_product_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/pos_settings_dialog.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/dialogs/kiotviet_orders_dialog.dart';
 import 'package:phan_phoi_son_gia_si/features/user_management/ui/user_management_screen.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
@@ -374,7 +375,12 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
             ),
             IconButton(
               tooltip: 'Xử lý đặt hàng',
-              onPressed: () {},
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (context) => const KiotVietOrdersDialog(),
+                );
+              },
               icon: const Icon(Icons.inventory_2_outlined),
             ),
             if (userDisplayName != null) ...[
@@ -396,9 +402,11 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
                     );
                     break;
                   case 'user_management':
-                    Navigator.of(context).push(MaterialPageRoute(
-                      builder: (context) => const UserManagementScreen(),
-                    ));
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const UserManagementScreen(),
+                      ),
+                    );
                     break;
                   case 'logout':
                     context.read<AuthService>().signOut();
