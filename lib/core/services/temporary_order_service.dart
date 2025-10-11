@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:phan_phoi_son_gia_si/core/models/kiotviet_order.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_customer.dart';
@@ -8,6 +9,8 @@ import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/cart_item.dart';
+import '../services/kiotviet_product_service.dart';
+import '../services/kiotviet_customer_service.dart';
 import '../services/auth_service.dart';
 import '../models/kiotviet_sale_channel.dart';
 import '../models/kiotviet_user.dart';
@@ -20,6 +23,9 @@ class TemporaryOrderService with ChangeNotifier {
   final Uuid _uuid = const Uuid();
   AppUserService _appUserService;
   AuthService _authService;
+  final KiotVietCustomerService _customerService = KiotVietCustomerService();
+  // Thêm KiotVietProductService để lấy chi tiết sản phẩm
+  final KiotVietProductService _productService = KiotVietProductService();
 
   List<TemporaryOrder> _orders = [];
   String? _activeOrderId;
@@ -88,6 +94,8 @@ class TemporaryOrderService with ChangeNotifier {
           saleChannel: saleChannelData != null
               ? KiotVietSaleChannel.fromJson(saleChannelData)
               : null,
+          kiotvietOrderId: item['kiotvietOrderId'],
+          kiotvietOrderCode: item['kiotvietOrderCode'],
         );
       }).toList();
     } else {
@@ -119,6 +127,8 @@ class TemporaryOrderService with ChangeNotifier {
         'customer': order.customer?.toJson(),
         'seller': order.seller?.toJson(),
         'saleChannel': order.saleChannel?.toJson(),
+        'kiotvietOrderId': order.kiotvietOrderId,
+        'kiotvietOrderCode': order.kiotvietOrderCode,
       };
     }).toList();
     await prefs.setString(_storageKey, jsonEncode(ordersToSave));
@@ -206,9 +216,9 @@ class TemporaryOrderService with ChangeNotifier {
       _ensureActiveOrder();
       final order = activeOrder;
       if (order == null) {
-      print("Failed to add product: Could not determine an active order.");
-      return;
-    }
+        print("Failed to add product: Could not determine an active order.");
+        return;
+      }
 
       // Try to find an existing "master" item for this product.
       final existingItemIndex = order.items.indexWhere(
@@ -365,6 +375,82 @@ class TemporaryOrderService with ChangeNotifier {
 
       final item = order.items.removeAt(oldIndex);
       order.items.insert(newIndex, item);
+    });
+  }
+
+  /// Imports a detailed KiotViet order, creates a new temporary order from it,
+  /// and sets it as the active one.
+  Future<void> importKiotVietOrder(KiotVietOrder kiotvietOrder) async {
+    // 1. Lấy thông tin chi tiết cho từng sản phẩm trong đơn hàng để làm giàu dữ liệu
+    final productFutures = kiotvietOrder.orderDetails.map((detail) async {
+      // Lấy thông tin đầy đủ của sản phẩm từ Firestore
+      final product = await _productService.getProductById(detail.productId);
+
+      return CartItem(
+        id: _uuid.v4(),
+        productId: detail.productId.toString(), // FIX: Convert int to String
+        productCode: detail.productCode ?? '', // FIX: Handle potential null
+        productName: detail.productName ?? '', // FIX: Handle potential null
+        // Sử dụng fullName từ sản phẩm chi tiết nếu có, nếu không thì dùng productName
+        productFullName: product?.fullName ?? detail.productName ?? '',
+        // Lấy đơn vị tính từ sản phẩm chi tiết
+        unit: product?.unit ?? '',
+        quantity: detail.quantity,
+        unitPrice: detail.price,
+        isMaster: true, // Coi mỗi dòng từ KiotViet là một dòng "master"
+        note: detail.note,
+        // FIX: Xử lý giảm giá từ KiotViet order detail
+        // KiotViet API có thể trả về cả chiết khấu theo % và theo tiền.
+        // Ưu tiên chiết khấu theo tiền mặt nếu có, nếu không thì dùng %.
+        discount: detail.discount ?? detail.discountRatio ?? 0,
+        isDiscountPercentage:
+            detail.discount == null &&
+            detail.discountRatio != null, // True nếu chỉ có chiết khấu %
+      );
+    });
+
+    // Chờ tất cả các future lấy thông tin sản phẩm hoàn thành
+    final cartItems = await Future.wait(productFutures);
+
+    // 2. Lấy thông tin khách hàng, nhân viên, kênh bán song song
+    final results = await Future.wait([
+      if (kiotvietOrder.customerId != null)
+        _customerService.getCustomerById(kiotvietOrder.customerId!),
+      // TODO: Cần có service để lấy KiotVietUser và KiotVietSaleChannel bằng ID
+      // Hiện tại, các service này đang lấy toàn bộ danh sách.
+      // Giả lập lấy thông tin này, cần được thay thế bằng logic thực tế.
+      // Future.value(null), // Placeholder for seller
+      // Future.value(null), // Placeholder for saleChannel
+    ]);
+
+    final KiotVietCustomer? customer = results.isNotEmpty
+        ? results[0] as KiotVietCustomer?
+        : null;
+    // final KiotVietUser? seller = results.length > 1 ? results[1] as KiotVietUser? : null;
+    // final KiotVietSaleChannel? saleChannel = results.length > 2 ? results[2] as KiotVietSaleChannel? : null;
+
+    // 3. Tạo một đơn hàng tạm mới từ thông tin đã import.
+    // Tên của đơn hàng tạm sẽ là mã đơn hàng KiotViet.
+    final newOrder = TemporaryOrder(
+      id: _uuid.v4(),
+      name: kiotvietOrder.code,
+      items: cartItems,
+      customer: customer,
+      // Gán các thông tin từ KiotViet để phân biệt
+      kiotvietOrderId: kiotvietOrder.id,
+      kiotvietOrderCode: kiotvietOrder.code,
+      description: kiotvietOrder.description,
+      // TODO: Gán seller và saleChannel sau khi có service lấy bằng ID
+      // seller: seller,
+      // saleChannel: saleChannel,
+    );
+
+    // 4. Thêm vào danh sách, đặt làm đơn hàng hoạt động và lưu lại
+    _updateAndSave(() {
+      // Giới hạn số lượng đơn tạm
+      if (_orders.length >= 20) _orders.removeAt(0);
+      _orders.add(newOrder);
+      _activeOrderId = newOrder.id;
     });
   }
 

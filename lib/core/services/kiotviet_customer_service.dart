@@ -164,4 +164,30 @@ class KiotVietCustomerService {
       rethrow;
     }
   }
+
+  /// Fetches a single customer from Firestore by their KiotViet ID.
+  ///
+  /// Returns the [KiotVietCustomer] if found, otherwise returns null.
+  Future<KiotVietCustomer?> getCustomerById(int customerId) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('kiotviet_customers')
+          .where('id', isEqualTo: customerId)
+          .limit(1)
+          .withConverter<KiotVietCustomer>(
+            fromFirestore: (snapshots, _) =>
+                KiotVietCustomer.fromFirestore(snapshots),
+            toFirestore: (customer, _) => customer.toJson(),
+          )
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        return querySnapshot.docs.first.data();
+      }
+      return null;
+    } catch (e) {
+      print('Error fetching customer by ID $customerId: $e');
+      return null;
+    }
+  }
 }

@@ -5,6 +5,7 @@ class KiotVietOrder {
   final String code;
   final DateTime? purchaseDate;
   final int? branchId;
+  final int? customerId;
   final String? customerName;
   final double total;
   final double totalPayment;
@@ -12,6 +13,9 @@ class KiotVietOrder {
   final String? statusValue;
   final DateTime createdDate;
   final DateTime? modifiedDate;
+  final String? description;
+  final double? discount;
+  final double? discountRatio;
   final KiotVietOrderDelivery? orderDelivery;
   final List<KiotVietOrderDetail> orderDetails;
 
@@ -20,6 +24,7 @@ class KiotVietOrder {
     required this.code,
     this.purchaseDate,
     this.branchId,
+    this.customerId,
     this.customerName,
     required this.total,
     required this.totalPayment,
@@ -27,6 +32,9 @@ class KiotVietOrder {
     this.statusValue,
     required this.createdDate,
     this.modifiedDate,
+    this.description,
+    this.discount,
+    this.discountRatio,
     this.orderDelivery,
     required this.orderDetails,
   });
@@ -39,6 +47,7 @@ class KiotVietOrder {
           ? DateTime.tryParse(json['purchaseDate'])
           : null,
       branchId: json['branchId'],
+      customerId: json['customerId'],
       customerName: json['customerName'],
       total: (json['total'] ?? 0).toDouble(),
       totalPayment: (json['totalPayment'] ?? 0).toDouble(),
@@ -48,6 +57,9 @@ class KiotVietOrder {
       modifiedDate: json['modifiedDate'] != null
           ? DateTime.tryParse(json['modifiedDate'])
           : null,
+      description: json['description'],
+      discount: (json['discount'] as num?)?.toDouble(),
+      discountRatio: (json['discountRatio'] as num?)?.toDouble(),
       orderDelivery: json['orderDelivery'] != null
           ? KiotVietOrderDelivery.fromJson(json['orderDelivery'])
           : null,
@@ -64,7 +76,9 @@ class KiotVietOrderDetail {
   final String? productName;
   final double quantity;
   final double price;
+  final double? discount;
   final double? discountRatio;
+  final bool? isMaster;
   final String? note;
 
   KiotVietOrderDetail({
@@ -73,7 +87,9 @@ class KiotVietOrderDetail {
     this.productName,
     required this.quantity,
     required this.price,
+    this.discount,
     this.discountRatio,
+    this.isMaster,
     this.note,
   });
 
@@ -84,7 +100,9 @@ class KiotVietOrderDetail {
       productName: json['productName'], // Can be null
       quantity: (json['quantity'] ?? 0).toDouble(),
       price: (json['price'] ?? 0).toDouble(),
-      discountRatio: (json['discountRatio'])?.toDouble(),
+      discount: (json['discount'] as num?)?.toDouble(),
+      discountRatio: (json['discountRatio'] as num?)?.toDouble(),
+      isMaster: json['isMaster'],
       note: json['note'],
     );
   }

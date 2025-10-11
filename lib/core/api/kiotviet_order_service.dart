@@ -19,12 +19,14 @@ class KiotVietOrderService {
   /// [includeOrderDelivery]: Whether to include delivery information.
   /// [pageSize]: Number of items per page.
   /// [currentItem]: The starting index for pagination.
+  /// [query]: Search query for order code or customer name.
   Future<PaginatedResult<KiotVietOrder>?> getOrders({
     List<int>? branchIds,
     List<int>? status,
     String orderBy = 'purchaseDate',
     String orderDirection = 'Desc', // Default to get the latest orders
     bool includeOrderDelivery = true,
+    String? query,
     int pageSize = 30,
     int currentItem = 0,
   }) async {
@@ -44,6 +46,9 @@ class KiotVietOrderService {
     }
     if (status != null && status.isNotEmpty) {
       queryParameters['status'] = status;
+    }
+    if (query != null && query.isNotEmpty) {
+      queryParameters['query'] = query;
     }
 
     try {
@@ -113,6 +118,68 @@ class KiotVietOrderService {
       return null;
     } catch (e) {
       debugPrint('An unexpected error occurred while creating order: $e');
+      return null;
+    }
+  }
+
+  /// Fetches the details of a single order by its ID.
+  Future<KiotVietOrder?> getOrderById(int orderId) async {
+    final path = '/orders/$orderId';
+
+    try {
+      final response = await _apiService.get(path);
+
+      if (response != null && response.statusCode == 200) {
+        return KiotVietOrder.fromJson(response.data);
+      } else {
+        debugPrint(
+          'Failed to get order details for ID $orderId. Status: ${response?.statusCode}, Body: ${response?.data}',
+        );
+        return null;
+      }
+    } on DioException catch (e) {
+      debugPrint('DioException while getting order details for ID $orderId: $e');
+      if (e.response != null) {
+        debugPrint('Error response data: ${e.response?.data}');
+      }
+      return null;
+    } catch (e) {
+      debugPrint(
+        'An unexpected error occurred while getting order details for ID $orderId: $e',
+      );
+      return null;
+    }
+  }
+
+  /// Updates an existing order on KiotViet.
+  ///
+  /// [orderId]: The ID of the order to update.
+  /// [orderData]: A map representing the fields to update.
+  Future<KiotVietOrder?> updateOrder(
+    int orderId,
+    Map<String, dynamic> orderData,
+  ) async {
+    final path = '/orders/$orderId';
+
+    try {
+      final response = await _apiService.put(path, data: orderData);
+
+      if (response != null && response.statusCode == 200) {
+        return KiotVietOrder.fromJson(response.data);
+      } else {
+        debugPrint(
+          'Failed to update order $orderId. Status: ${response?.statusCode}, Body: ${response?.data}',
+        );
+        return null;
+      }
+    } on DioException catch (e) {
+      debugPrint('DioException while updating order $orderId: $e');
+      if (e.response != null) {
+        debugPrint('Error response data: ${e.response?.data}');
+      }
+      return null;
+    } catch (e) {
+      debugPrint('An unexpected error occurred while updating order $orderId: $e');
       return null;
     }
   }

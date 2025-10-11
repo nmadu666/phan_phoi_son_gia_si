@@ -13,6 +13,9 @@ class TemporaryOrder {
   KiotVietCustomer? customer;
   KiotVietUser? seller;
   KiotVietSaleChannel? saleChannel;
+  // Thêm các trường để lưu thông tin đơn hàng gốc từ KiotViet
+  final int? kiotvietOrderId;
+  final String? kiotvietOrderCode;
 
   TemporaryOrder({
     required this.id,
@@ -23,8 +26,12 @@ class TemporaryOrder {
     this.customer,
     this.seller,
     this.saleChannel,
+    this.kiotvietOrderId,
+    this.kiotvietOrderCode,
   }) : items = items ?? [],
        createdAt = createdAt ?? DateTime.now();
+
+  bool get isImportedFromKiotViet => kiotvietOrderId != null;
 
   /// Calculates the grand total for this order.
   double get total {
@@ -44,6 +51,8 @@ class TemporaryOrder {
     KiotVietCustomer? customer, // Allow null to clear customer
     KiotVietUser? seller, // Allow null to clear seller
     KiotVietSaleChannel? saleChannel,
+    int? kiotvietOrderId,
+    String? kiotvietOrderCode,
   }) {
     return TemporaryOrder(
       id: id ?? this.id,
@@ -54,6 +63,8 @@ class TemporaryOrder {
       customer: customer ?? this.customer,
       seller: seller ?? this.seller,
       saleChannel: saleChannel ?? this.saleChannel,
+      kiotvietOrderId: kiotvietOrderId ?? this.kiotvietOrderId,
+      kiotvietOrderCode: kiotvietOrderCode ?? this.kiotvietOrderCode,
     );
   }
 }

@@ -31,10 +31,17 @@ class KiotVietApiService {
     Map<String, dynamic>? data,
   }) async {
     try {
-      final response = await _dio.post(
-        _proxyUrl,
-        data: {'method': method, 'endpoint': endpoint, 'data': data},
-      );
+      // Xây dựng body cho request đến proxy
+      final Map<String, dynamic> requestBody = {
+        'method': method,
+        'endpoint': endpoint,
+      };
+      // Chỉ thêm trường 'data' nếu nó không phải là null
+      if (data != null) {
+        requestBody['data'] = data;
+      }
+
+      final response = await _dio.post(_proxyUrl, data: requestBody);
       // Firebase Function proxy sẽ trả về dữ liệu gốc từ KiotViet,
       // và mã trạng thái 200 nếu thành công.
       return response;
@@ -63,6 +70,12 @@ class KiotVietApiService {
   /// Yêu cầu này được thực hiện thông qua Firebase Function proxy.
   Future<Response?> post(String path, {Map<String, dynamic>? data}) async {
     return _makeProxyRequest('post', path, data: data);
+  }
+
+  /// Performs a PUT request to a KiotViet API endpoint.
+  /// Yêu cầu này được thực hiện thông qua Firebase Function proxy.
+  Future<Response?> put(String path, {Map<String, dynamic>? data}) async {
+    return _makeProxyRequest('put', path, data: data);
   }
 
   // Example function to get products

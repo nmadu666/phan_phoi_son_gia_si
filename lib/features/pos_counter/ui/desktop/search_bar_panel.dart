@@ -8,6 +8,7 @@ import 'package:phan_phoi_son_gia_si/core/services/kiotviet_product_service.dart
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_product.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/pos_settings_dialog.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/dialogs/kiotviet_orders_dialog.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/logic/kiotviet_orders_provider.dart';
 import 'package:phan_phoi_son_gia_si/features/user_management/ui/user_management_screen.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
@@ -378,7 +379,11 @@ class _SearchBarPanelState extends State<SearchBarPanel> {
               onPressed: () {
                 showDialog(
                   context: context,
-                  builder: (context) => const KiotVietOrdersDialog(),
+                  builder: (_) => ChangeNotifierProvider(
+                    // Cung cấp KiotVietOrdersProvider cho dialog
+                    create: (_) => KiotVietOrdersProvider(),
+                    child: const KiotVietOrdersDialog(),
+                  ),
                 );
               },
               icon: const Icon(Icons.inventory_2_outlined),

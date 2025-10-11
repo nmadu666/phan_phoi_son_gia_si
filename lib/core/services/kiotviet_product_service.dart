@@ -95,4 +95,25 @@ class KiotVietProductService {
       return {'products': [], 'lastDoc': null};
     }
   }
+
+  /// Fetches a single product from Firestore by its KiotViet ID.
+  ///
+  /// Returns the [KiotVietProduct] if found, otherwise returns null.
+  Future<KiotVietProduct?> getProductById(int productId) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('kiotviet_products')
+          .where('id', isEqualTo: productId)
+          .limit(1)
+          .get();
+
+      if (querySnapshot.docs.isNotEmpty) {
+        return KiotVietProduct.fromFirestore(querySnapshot.docs.first);
+      }
+      return null;
+    } catch (e) {
+      print('Error fetching product by ID $productId: $e');
+      return null;
+    }
+  }
 }

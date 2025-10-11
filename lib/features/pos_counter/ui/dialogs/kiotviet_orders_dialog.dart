@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:phan_phoi_son_gia_si/core/api/kiotviet_order_service.dart';
-import 'package:phan_phoi_son_gia_si/core/models/kiotviet_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_state_service.dart';
+import 'package:phan_phoi_son_gia_si/core/api/kiotviet_order_service.dart';
+import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/logic/kiotviet_orders_provider.dart';
 import 'package:provider/provider.dart';
+import 'package:phan_phoi_son_gia_si/core/models/kiotviet_order.dart';
 
 class KiotVietOrdersDialog extends StatefulWidget {
   const KiotVietOrdersDialog({super.key});
@@ -13,116 +16,117 @@ class KiotVietOrdersDialog extends StatefulWidget {
 }
 
 class _KiotVietOrdersDialogState extends State<KiotVietOrdersDialog> {
-  final KiotVietOrderService _orderService = KiotVietOrderService();
   final ScrollController _scrollController = ScrollController();
-
-  // State for lazy loading
-  final List<KiotVietOrder> _orders = [];
-  bool _isLoading = false; // For initial load
-  bool _isLazyLoading = false; // For subsequent loads
-  bool _hasMore = true;
-  int _currentItem = 0;
-  final int _pageSize = 30;
+  final TextEditingController _searchController = TextEditingController();
+  Timer? _debounce;
+  bool _isImporting = false;
+  int? _importingOrderId;
 
   @override
   void initState() {
     super.initState();
-    // Sử dụng addPostFrameCallback để truy cập context một cách an toàn
-    // sau khi frame đầu tiên được build xong.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchInitialOrders();
+      _fetchOrders(isRefresh: true);
+    });
+
+    _searchController.addListener(() {
+      if (_debounce?.isActive ?? false) _debounce!.cancel();
+      _debounce = Timer(const Duration(milliseconds: 500), () {
+        _fetchOrders(isRefresh: true, query: _searchController.text);
+      });
     });
 
     _scrollController.addListener(() {
-      // Trigger fetch more when user scrolls to the end of the list
+      final provider = context.read<KiotVietOrdersProvider>();
       if (_scrollController.position.pixels >=
               _scrollController.position.maxScrollExtent -
-                  200 && // Add a buffer
-          _hasMore &&
-          !_isLoading &&
-          !_isLazyLoading) {
-        _fetchMoreOrders();
+                  200 && // Tải thêm khi gần cuối danh sách
+          provider.hasMore &&
+          !provider.isLazyLoading) {
+        _fetchOrders();
       }
     });
   }
 
-  Future<void> _fetchInitialOrders() async {
-    // Lấy branchId từ AppStateService
-    final appState = context.read<AppStateService>(); // Safe to use here
-    final selectedBranchId = appState.get<int>(
-      AppStateService.selectedBranchIdKey,
-    );
-
-    if (selectedBranchId == null) {
-      // Nếu không có chi nhánh nào được chọn, không tải dữ liệu
-      setState(() {
-        _isLoading = false;
-        _orders.clear();
-      });
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-      _orders.clear();
-      _currentItem = 0;
-      _hasMore = true;
-    });
-
-    // Lấy danh sách đơn hàng theo chi nhánh và trạng thái
-    // Status: 1 (Phiếu tạm), 2 (Đang giao hàng - cần xác nhận lại mã này)
-    final result = await _orderService.getOrders(
-      branchIds: [selectedBranchId],
-      status: [1, 2],
-      pageSize: _pageSize,
-      currentItem: _currentItem,
-    );
-
-    if (mounted) {
-      setState(() {
-        if (result != null) {
-          _orders.addAll(result.data);
-          _currentItem += result.data.length;
-          _hasMore = result.data.length == _pageSize;
-        }
-        _isLoading = false;
-      });
-    }
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    _searchController.dispose();
+    _debounce?.cancel();
+    super.dispose();
   }
 
-  Future<void> _fetchMoreOrders() async {
-    if (_isLazyLoading || !_hasMore || _isLoading) return;
-
-    setState(() {
-      _isLazyLoading = true;
-    });
-
+  Future<void> _fetchOrders({
+    bool isRefresh = false,
+    String? query,
+    List<int>? status,
+  }) async {
     final appState = context.read<AppStateService>();
     final selectedBranchId = appState.get<int>(
       AppStateService.selectedBranchIdKey,
     );
 
     if (selectedBranchId == null) {
-      setState(() => _isLazyLoading = false);
       return;
     }
 
-    final result = await _orderService.getOrders(
-      branchIds: [selectedBranchId],
-      status: [1, 2],
-      pageSize: _pageSize,
-      currentItem: _currentItem,
+    // Gọi phương thức fetchOrders từ provider
+    await context.read<KiotVietOrdersProvider>().fetchOrders(
+      selectedBranchId,
+      isRefresh: isRefresh,
+      query: query,
+      status: status,
     );
+  }
 
-    if (mounted) {
-      setState(() {
-        if (result != null) {
-          _orders.addAll(result.data);
-          _currentItem += result.data.length;
-          _hasMore = result.data.length == _pageSize;
-        }
-        _isLazyLoading = false;
-      });
+  Future<void> _importOrder(KiotVietOrder order) async {
+    if (_isImporting) return;
+
+    setState(() {
+      _isImporting = true;
+      _importingOrderId = order.id;
+    });
+
+    try {
+      // Sử dụng context.read để lấy service một cách an toàn
+      final orderService = context.read<KiotVietOrderService>();
+      final temporaryOrderService = context.read<TemporaryOrderService>();
+
+      // 1. Lấy chi tiết đơn hàng từ KiotViet
+      final detailedOrder = await orderService.getOrderById(order.id);
+
+      if (detailedOrder == null) {
+        throw Exception('Không thể tải chi tiết đơn hàng.');
+      }
+
+      // 2. Import vào TemporaryOrderService
+      await temporaryOrderService.importKiotVietOrder(detailedOrder);
+
+      // 3. Đóng dialog và hiển thị thông báo thành công
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Đã import đơn hàng ${order.code}')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Lỗi khi import đơn hàng'),
+            content: SingleChildScrollView(child: SelectableText(e.toString())),
+            actions: <Widget>[
+              TextButton(
+                child: const Text('Đóng'),
+                onPressed: () => Navigator.of(dialogContext).pop(),
+              ),
+            ],
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isImporting = false);
     }
   }
 
@@ -132,20 +136,39 @@ class _KiotVietOrdersDialogState extends State<KiotVietOrdersDialog> {
     final selectedBranchId = context.watch<AppStateService>().get<int>(
       AppStateService.selectedBranchIdKey,
     );
+    final provider = context.watch<KiotVietOrdersProvider>();
 
     return AlertDialog(
-      title: const Text('Danh sách đặt hàng KiotViet'),
+      title: Row(
+        children: [
+          const Expanded(flex: 2, child: Text('Danh sách đặt hàng KiotViet')),
+          const SizedBox(width: 24),
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              decoration: InputDecoration(
+                hintText: 'Tìm theo mã đơn, tên khách...',
+                prefixIcon: const Icon(Icons.search),
+                border: const OutlineInputBorder(),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+            ),
+          ),
+        ],
+      ),
       content: SizedBox(
         width: MediaQuery.of(context).size.width * 0.7, // 70% of screen width
         height:
             MediaQuery.of(context).size.height * 0.8, // 80% of screen height
-        child: _buildContent(context, currencyFormat, selectedBranchId),
+        child: _buildContent(provider, currencyFormat, selectedBranchId),
       ),
       actions: <Widget>[
         TextButton.icon(
           icon: const Icon(Icons.refresh),
           label: const Text('Tải lại'),
-          onPressed: _fetchInitialOrders,
+          onPressed: provider.state == KiotVietOrdersState.loading
+              ? null
+              : () => _fetchOrders(isRefresh: true),
         ),
         TextButton(
           child: const Text('Đóng'),
@@ -155,12 +178,27 @@ class _KiotVietOrdersDialogState extends State<KiotVietOrdersDialog> {
     );
   }
 
+  void _onStatusFilterChanged(int status) {
+    final provider = context.read<KiotVietOrdersProvider>();
+    List<int> newStatus = List.from(provider.selectedStatus);
+
+    if (newStatus.contains(status)) {
+      // Không cho phép bỏ chọn nếu chỉ còn một trạng thái
+      if (newStatus.length > 1) {
+        newStatus.remove(status);
+      }
+    } else {
+      newStatus.add(status);
+    }
+    _fetchOrders(status: newStatus);
+  }
+
   Widget _buildContent(
-    BuildContext context,
+    KiotVietOrdersProvider provider,
     NumberFormat currencyFormat,
     int? selectedBranchId,
   ) {
-    if (_isLoading) {
+    if (provider.state == KiotVietOrdersState.loading) {
       return const Center(child: CircularProgressIndicator());
     }
 
@@ -170,22 +208,34 @@ class _KiotVietOrdersDialogState extends State<KiotVietOrdersDialog> {
       );
     }
 
-    if (_orders.isEmpty) {
-      return const Center(child: Text('Không có đơn đặt hàng nào.'));
+    if (provider.state == KiotVietOrdersState.error) {
+      return Center(child: Text(provider.errorMessage ?? 'Đã xảy ra lỗi.'));
     }
+
+    if (provider.orders.isEmpty) {
+      return Center(
+        child: Text(
+          _searchController.text.isEmpty
+              ? 'Không có đơn đặt hàng nào.'
+              : 'Không tìm thấy đơn hàng phù hợp.',
+        ),
+      );
+    }
+
+    final orders = provider.orders;
 
     return ListView.builder(
       controller: _scrollController,
-      itemCount: _orders.length + (_isLazyLoading ? 1 : 0),
+      itemCount: orders.length + (provider.isLazyLoading ? 1 : 0),
       itemBuilder: (context, index) {
-        if (index == _orders.length) {
+        if (index == orders.length) {
           return const Padding(
             padding: EdgeInsets.all(16.0),
             child: Center(child: CircularProgressIndicator()),
           );
         }
 
-        final order = _orders[index];
+        final order = orders[index];
         return Card(
           margin: const EdgeInsets.symmetric(vertical: 4),
           child: ListTile(
@@ -197,7 +247,7 @@ class _KiotVietOrdersDialogState extends State<KiotVietOrdersDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Ngày đặt: ${order.purchaseDate != null ? DateFormat('dd/MM/yyyy HH:mm').format(order.purchaseDate!) : 'N/A'}',
+                  'Ngày đặt: ${order.purchaseDate != null ? DateFormat('dd/MM/yyyy HH:mm').format(order.purchaseDate!.toLocal()) : 'N/A'}',
                 ),
                 Text(
                   'Trạng thái: ${order.statusValue}',
@@ -212,8 +262,16 @@ class _KiotVietOrdersDialogState extends State<KiotVietOrdersDialog> {
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             onTap: () {
-              // TODO: Implement logic when an order is tapped
+              _importOrder(order);
             },
+            // Hiển thị loading indicator cho item đang được import
+            leading: _isImporting && _importingOrderId == order.id
+                ? const SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : CircleAvatar(child: Text(order.status == 1 ? 'T' : 'G')),
           ),
         );
       },
