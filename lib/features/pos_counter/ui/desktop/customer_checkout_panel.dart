@@ -5,6 +5,8 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_sale_channel.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
+import 'package:phan_phoi_son_gia_si/core/models/kiotviet_price_book.dart';
+import 'package:phan_phoi_son_gia_si/core/services/kiotviet_price_book_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_user.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_sale_channel_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_user_service.dart';
@@ -31,9 +33,11 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
   final KiotVietCustomerService _customerService = KiotVietCustomerService();
   final KiotVietSaleChannelService _saleChannelService =
       KiotVietSaleChannelService();
+  final KiotVietPriceBookService _priceBookService = KiotVietPriceBookService();
 
   late Future<List<KiotVietUser>> _usersFuture;
   late Future<List<KiotVietSaleChannel>> _saleChannelsFuture;
+  late Future<List<KiotVietPriceBook>> _priceBooksFuture;
   DateTime _selectedDate = DateTime.now();
 
   @override
@@ -41,6 +45,7 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
     super.initState();
     _usersFuture = _userService.getUsers();
     _saleChannelsFuture = _saleChannelService.getSaleChannels();
+    _priceBooksFuture = _priceBookService.getPriceBooks();
     _setDefaultSeller();
   }
 
@@ -128,7 +133,10 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
           children: [
             Expanded(flex: 5, child: _buildCustomerSearch(customer)),
             const SizedBox(width: 8),
-            Expanded(flex: 4, child: _buildPriceListDropdown()),
+            Expanded(
+              flex: 4,
+              child: _buildPriceListDropdown(activeOrder.priceBookId),
+            ),
           ],
         ),
 
@@ -501,20 +509,51 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
     );
   }
 
-  Widget _buildPriceListDropdown() {
-    // Placeholder data
-    return DropdownButtonFormField<int>(
-      initialValue: 1,
-      decoration: const InputDecoration(
-        labelText: 'Bảng giá',
-        border: OutlineInputBorder(),
-        contentPadding: EdgeInsets.symmetric(horizontal: 12),
-      ),
-      items: const [
-        DropdownMenuItem(value: 1, child: Text('Bảng giá chung')),
-        DropdownMenuItem(value: 2, child: Text('Giá bán sỉ')),
-      ],
-      onChanged: (value) {},
+  Widget _buildPriceListDropdown(int? selectedPriceBookId) {
+    return FutureBuilder<List<KiotVietPriceBook>>(
+      future: _priceBooksFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const InputDecorator(
+            decoration: InputDecoration(
+              labelText: 'Bảng giá',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12),
+            ),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                height: 20,
+                width: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+        if (snapshot.hasError || !snapshot.hasData) {
+          return const Text('Lỗi tải bảng giá');
+        }
+
+        final priceBooks = snapshot.data!;
+        // TODO: Cần có logic để lấy bảng giá chung mặc định
+        final defaultPriceBook = priceBooks.firstWhere(
+          (pb) => pb.isGlobal,
+          orElse: () => priceBooks.first,
+        );
+
+        return DropdownButtonFormField<int>(
+          value: selectedPriceBookId ?? defaultPriceBook.id,
+          decoration: const InputDecoration(
+            labelText: 'Bảng giá',
+            border: OutlineInputBorder(),
+            contentPadding: EdgeInsets.symmetric(horizontal: 12),
+          ),
+          items: priceBooks
+              .map((pb) => DropdownMenuItem(value: pb.id, child: Text(pb.name)))
+              .toList(),
+          onChanged: (value) {},
+        );
+      },
     );
   }
 

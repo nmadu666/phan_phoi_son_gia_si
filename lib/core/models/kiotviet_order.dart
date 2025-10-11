@@ -7,6 +7,8 @@ class KiotVietOrder {
   final int? branchId;
   final int? customerId;
   final String? customerName;
+  final int? soldById;
+  final int? priceBookId;
   final double total;
   final double totalPayment;
   final int status;
@@ -26,6 +28,8 @@ class KiotVietOrder {
     this.branchId,
     this.customerId,
     this.customerName,
+    this.soldById,
+    this.priceBookId,
     required this.total,
     required this.totalPayment,
     required this.status,
@@ -49,6 +53,8 @@ class KiotVietOrder {
       branchId: json['branchId'],
       customerId: json['customerId'],
       customerName: json['customerName'],
+      soldById: json['soldById'],
+      priceBookId: json['priceBookId'],
       total: (json['total'] ?? 0).toDouble(),
       totalPayment: (json['totalPayment'] ?? 0).toDouble(),
       status: json['status'],

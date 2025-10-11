@@ -9,14 +9,43 @@ class KiotVietUserService {
 
   Future<List<KiotVietUser>> getUsers() async {
     try {
-      final querySnapshot = await _firestore.collection('kiotviet_users').get();
-      final users = querySnapshot.docs
-          .map((doc) => KiotVietUser.fromFirestore(doc))
-          .toList();
-      return users;
+      // Sử dụng .withConverter để đảm bảo type-safety ngay từ câu truy vấn.
+      final querySnapshot = await _firestore
+          .collection('kiotviet_users')
+          .withConverter<KiotVietUser>(
+            fromFirestore: (snapshots, _) =>
+                KiotVietUser.fromFirestore(snapshots),
+            toFirestore: (user, _) => user.toJson(),
+          )
+          .get();
+      // .data() bây giờ sẽ trả về một đối tượng KiotVietUser đã được định kiểu.
+      return querySnapshot.docs.map((doc) => doc.data()).toList();
     } catch (e) {
       print('An unexpected error occurred while fetching users: $e');
       return [];
+    }
+  }
+
+  /// Fetches a single user from Firestore by their KiotViet ID.
+  ///
+  /// Returns the [KiotVietUser] if found, otherwise returns null.
+  Future<KiotVietUser?> getUserById(int userId) async {
+    try {
+      final querySnapshot = await _firestore
+          .collection('kiotviet_users')
+          .where('id', isEqualTo: userId)
+          .limit(1)
+          .withConverter<KiotVietUser>(
+            fromFirestore: (snapshots, _) =>
+                KiotVietUser.fromFirestore(snapshots),
+            toFirestore: (user, _) => user.toJson(),
+          )
+          .get();
+
+      return querySnapshot.docs.isNotEmpty ? querySnapshot.docs.first.data() : null;
+    } catch (e) {
+      print('Error fetching user by ID $userId: $e');
+      return null;
     }
   }
 }

@@ -23,6 +23,9 @@ function syncKiotVietBranchesToFirestore() {
 }
 // Expose the job for fixing incorrect date formats
 function fixIncorrectDateFormatsInFirestore() {
+}
+// Expose the job for syncing price books
+function syncKiotVietPriceBooksToFirestore() {
 }/******/ (() => { // webpackBootstrap
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
@@ -761,6 +764,84 @@ function syncKiotVietCustomersToFirestore() {
 
 /***/ }),
 
+/***/ "./src/jobs/syncPriceBooks.ts":
+/*!************************************!*\
+  !*** ./src/jobs/syncPriceBooks.ts ***!
+  \************************************/
+/***/ ((__unused_webpack_module, __webpack_exports__, __webpack_require__) => {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   syncKiotVietPriceBooksToFirestore: () => (/* binding */ syncKiotVietPriceBooksToFirestore)
+/* harmony export */ });
+/* harmony import */ var _api_kiotviet__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../api/kiotviet */ "./src/api/kiotviet.ts");
+/* harmony import */ var _api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../api/firestore_rest */ "./src/api/firestore_rest.ts");
+/* harmony import */ var _core_date__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../core/date */ "./src/core/date.ts");
+/**
+ * @fileoverview Contains the job for syncing price books and their details from KiotViet to Firestore.
+ */
+
+
+
+/**
+ * Fetches all price books from the KiotViet API and syncs them to the 'kiotviet_pricebooks'
+ * collection in Firestore. For each price book, it also fetches all associated product
+ * prices and syncs them to a 'details' subcollection.
+ */
+function syncKiotVietPriceBooksToFirestore() {
+    const mainEndpoint = '/pricebooks';
+    const mainCollectionName = 'kiotviet_pricebooks';
+    Logger.log('Starting KiotViet Price Books to Firestore synchronization process.');
+    try {
+        // Step 1: Fetch all price books (main data)
+        const allPriceBooks = (0,_api_kiotviet__WEBPACK_IMPORTED_MODULE_0__.fetchAllKiotVietData)(mainEndpoint);
+        if (!allPriceBooks || allPriceBooks.length === 0) {
+            Logger.log('No price books found to sync.');
+            return;
+        }
+        // Step 2: Map and prepare main price book data for Firestore
+        const priceBooksToSync = allPriceBooks.map(pb => {
+            const syncedPriceBook = { ...pb };
+            // Parse date fields to ensure they are stored as Timestamps
+            syncedPriceBook.startDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(pb.startDate);
+            syncedPriceBook.endDate = (0,_core_date__WEBPACK_IMPORTED_MODULE_2__.parseKiotVietDate)(pb.endDate);
+            // Remove fields that are not needed or will be in subcollections
+            delete syncedPriceBook.priceBookBranches;
+            delete syncedPriceBook.priceBookCustomerGroups;
+            delete syncedPriceBook.priceBookUsers;
+            return syncedPriceBook;
+        });
+        // Step 3: Write the main price book data to Firestore
+        (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__.batchWriteToFirestore)(mainCollectionName, priceBooksToSync);
+        Logger.log(`Successfully synced ${priceBooksToSync.length} main price book documents.`);
+        // Step 4: For each price book, fetch its details and sync to a subcollection
+        allPriceBooks.forEach(priceBook => {
+            const priceBookId = priceBook.id;
+            const detailsEndpoint = `/pricebooks/${priceBookId}`;
+            const detailsCollectionName = `${mainCollectionName}/${priceBookId}/details`;
+            Logger.log(`Fetching details for Price Book ID: ${priceBookId} from endpoint: ${detailsEndpoint}`);
+            // The details endpoint returns a flat array of all product prices, not paginated in the same way.
+            // We assume `fetchAllKiotVietData` can handle this structure as well.
+            const priceBookDetails = (0,_api_kiotviet__WEBPACK_IMPORTED_MODULE_0__.fetchAllKiotVietData)(detailsEndpoint);
+            if (priceBookDetails && priceBookDetails.length > 0) {
+                // The detail items don't have a unique 'id' field, but 'productId' is unique per price book.
+                // We'll map 'productId' to 'id' for `batchWriteToFirestore` to use as the document ID.
+                const detailsToSync = priceBookDetails.map(detail => ({
+                    ...detail,
+                    id: detail.productId, // Use productId as the document ID
+                }));
+                (0,_api_firestore_rest__WEBPACK_IMPORTED_MODULE_1__.batchWriteToFirestore)(detailsCollectionName, detailsToSync);
+            }
+        });
+    }
+    catch (e) {
+        Logger.log(`An error occurred during the price book sync process: ${e.toString()}\n${e.stack}`);
+    }
+}
+
+
+/***/ }),
+
 /***/ "./src/jobs/syncProducts.ts":
 /*!**********************************!*\
   !*** ./src/jobs/syncProducts.ts ***!
@@ -999,12 +1080,14 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _jobs_syncSaleChannels__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./jobs/syncSaleChannels */ "./src/jobs/syncSaleChannels.ts");
 /* harmony import */ var _jobs_syncBranches__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ./jobs/syncBranches */ "./src/jobs/syncBranches.ts");
 /* harmony import */ var _jobs_fixData__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ./jobs/fixData */ "./src/jobs/fixData.ts");
-/* harmony import */ var _core_properties__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./core/properties */ "./src/core/properties.ts");
+/* harmony import */ var _jobs_syncPriceBooks__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./jobs/syncPriceBooks */ "./src/jobs/syncPriceBooks.ts");
+/* harmony import */ var _core_properties__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(/*! ./core/properties */ "./src/core/properties.ts");
 /**
  * @fileoverview This is the main entry point for the Webpack bundle.
  * All functions that need to be globally available in the Google Apps Script
  * environment should be assigned to the `global` object.
  */
+
 
 
 
@@ -1037,7 +1120,7 @@ function _MANUAL_SETUP_() {
             Logger.log(`WARNING: Property "${key}" still contains a placeholder value. It was NOT set.`);
         }
         else {
-            (0,_core_properties__WEBPACK_IMPORTED_MODULE_7__.setScriptProperty)(key, value);
+            (0,_core_properties__WEBPACK_IMPORTED_MODULE_8__.setScriptProperty)(key, value);
             Logger.log(`Property "${key}" was set successfully.`);
         }
     }
@@ -1061,6 +1144,8 @@ __webpack_require__.g.syncKiotVietSaleChannelsToFirestore = _jobs_syncSaleChanne
 __webpack_require__.g.syncKiotVietBranchesToFirestore = _jobs_syncBranches__WEBPACK_IMPORTED_MODULE_5__.syncKiotVietBranchesToFirestore;
 // Expose the job for fixing incorrect date formats
 __webpack_require__.g.fixIncorrectDateFormatsInFirestore = _jobs_fixData__WEBPACK_IMPORTED_MODULE_6__.fixIncorrectDateFormatsInFirestore;
+// Expose the job for syncing price books
+__webpack_require__.g.syncKiotVietPriceBooksToFirestore = _jobs_syncPriceBooks__WEBPACK_IMPORTED_MODULE_7__.syncKiotVietPriceBooksToFirestore;
 
 })();
 

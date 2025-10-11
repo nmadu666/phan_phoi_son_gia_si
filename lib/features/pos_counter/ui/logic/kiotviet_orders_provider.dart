@@ -17,7 +17,7 @@ class KiotVietOrdersProvider with ChangeNotifier {
   final int _pageSize = 30;
   String _searchQuery = '';
   // Mặc định lọc theo cả Phiếu tạm (1) và Đang giao hàng (2)
-  List<int> _selectedStatus = [1, 2];
+  final List<int> _selectedStatus = [1, 2];
 
   List<KiotVietOrder> get orders => _orders;
   KiotVietOrdersState get state => _state;

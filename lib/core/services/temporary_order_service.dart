@@ -12,6 +12,7 @@ import '../models/cart_item.dart';
 import '../services/kiotviet_product_service.dart';
 import '../services/kiotviet_customer_service.dart';
 import '../services/auth_service.dart';
+import '../services/kiotviet_user_service.dart';
 import '../models/kiotviet_sale_channel.dart';
 import '../models/kiotviet_user.dart';
 
@@ -25,6 +26,7 @@ class TemporaryOrderService with ChangeNotifier {
   AuthService _authService;
   final KiotVietCustomerService _customerService = KiotVietCustomerService();
   // Thêm KiotVietProductService để lấy chi tiết sản phẩm
+  final KiotVietUserService _userService = KiotVietUserService();
   final KiotVietProductService _productService = KiotVietProductService();
 
   List<TemporaryOrder> _orders = [];
@@ -416,17 +418,18 @@ class TemporaryOrderService with ChangeNotifier {
     final results = await Future.wait([
       if (kiotvietOrder.customerId != null)
         _customerService.getCustomerById(kiotvietOrder.customerId!),
-      // TODO: Cần có service để lấy KiotVietUser và KiotVietSaleChannel bằng ID
-      // Hiện tại, các service này đang lấy toàn bộ danh sách.
-      // Giả lập lấy thông tin này, cần được thay thế bằng logic thực tế.
-      // Future.value(null), // Placeholder for seller
+      if (kiotvietOrder.soldById != null)
+        _userService.getUserById(kiotvietOrder.soldById!),
+      // TODO: Cần có service để lấy KiotVietSaleChannel bằng ID
       // Future.value(null), // Placeholder for saleChannel
     ]);
 
     final KiotVietCustomer? customer = results.isNotEmpty
         ? results[0] as KiotVietCustomer?
         : null;
-    // final KiotVietUser? seller = results.length > 1 ? results[1] as KiotVietUser? : null;
+    final KiotVietUser? seller = results.length > 1
+        ? results[1] as KiotVietUser?
+        : null;
     // final KiotVietSaleChannel? saleChannel = results.length > 2 ? results[2] as KiotVietSaleChannel? : null;
 
     // 3. Tạo một đơn hàng tạm mới từ thông tin đã import.
@@ -440,9 +443,9 @@ class TemporaryOrderService with ChangeNotifier {
       kiotvietOrderId: kiotvietOrder.id,
       kiotvietOrderCode: kiotvietOrder.code,
       description: kiotvietOrder.description,
-      // TODO: Gán seller và saleChannel sau khi có service lấy bằng ID
-      // seller: seller,
+      seller: seller,
       // saleChannel: saleChannel,
+      priceBookId: kiotvietOrder.priceBookId,
     );
 
     // 4. Thêm vào danh sách, đặt làm đơn hàng hoạt động và lưu lại

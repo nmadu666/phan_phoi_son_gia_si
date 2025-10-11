@@ -16,6 +16,7 @@ class TemporaryOrder {
   // Thêm các trường để lưu thông tin đơn hàng gốc từ KiotViet
   final int? kiotvietOrderId;
   final String? kiotvietOrderCode;
+  int? priceBookId;
 
   TemporaryOrder({
     required this.id,
@@ -28,6 +29,7 @@ class TemporaryOrder {
     this.saleChannel,
     this.kiotvietOrderId,
     this.kiotvietOrderCode,
+    this.priceBookId,
   }) : items = items ?? [],
        createdAt = createdAt ?? DateTime.now();
 
@@ -53,6 +55,7 @@ class TemporaryOrder {
     KiotVietSaleChannel? saleChannel,
     int? kiotvietOrderId,
     String? kiotvietOrderCode,
+    int? priceBookId,
   }) {
     return TemporaryOrder(
       id: id ?? this.id,
@@ -65,6 +68,7 @@ class TemporaryOrder {
       saleChannel: saleChannel ?? this.saleChannel,
       kiotvietOrderId: kiotvietOrderId ?? this.kiotvietOrderId,
       kiotvietOrderCode: kiotvietOrderCode ?? this.kiotvietOrderCode,
+      priceBookId: priceBookId ?? this.priceBookId,
     );
   }
 }
