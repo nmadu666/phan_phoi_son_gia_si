@@ -98,6 +98,7 @@ class TemporaryOrderService with ChangeNotifier {
               : null,
           kiotvietOrderId: item['kiotvietOrderId'],
           kiotvietOrderCode: item['kiotvietOrderCode'],
+          priceBookId: item['priceBookId'], // Tải priceBookId đã lưu
         );
       }).toList();
     } else {
@@ -131,6 +132,7 @@ class TemporaryOrderService with ChangeNotifier {
         'saleChannel': order.saleChannel?.toJson(),
         'kiotvietOrderId': order.kiotvietOrderId,
         'kiotvietOrderCode': order.kiotvietOrderCode,
+        'priceBookId': order.priceBookId, // Lưu priceBookId
       };
     }).toList();
     await prefs.setString(_storageKey, jsonEncode(ordersToSave));
@@ -170,6 +172,7 @@ class TemporaryOrderService with ChangeNotifier {
       id: _uuid.v4(),
       name: 'Đơn tạm ${_orders.length + 1}',
       seller: defaultSeller,
+      priceBookId: 0, // Mặc định sử dụng Bảng giá chung (ID: 0)
     );
     _orders.add(newOrder);
     _activeOrderId = newOrder.id;
@@ -503,6 +506,18 @@ class TemporaryOrderService with ChangeNotifier {
     } catch (e) {
       print("Error setting sale channel for active order: $e");
     }
+  }
+
+  /// Sets the price book for the active order.
+  void setPriceBookForActiveOrder(int? priceBookId) {
+    _updateAndSave(() {
+      final order = activeOrder;
+      // Only update if the price book has actually changed to avoid unnecessary rebuilds.
+      if (order != null && order.priceBookId != priceBookId) {
+        order.priceBookId = priceBookId;
+        // TODO: Add logic to re-calculate prices based on the new price book if needed.
+      }
+    });
   }
 
   // --- Private Helper Methods ---

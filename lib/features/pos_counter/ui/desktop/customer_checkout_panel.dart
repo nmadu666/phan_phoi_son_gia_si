@@ -462,8 +462,14 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
         }
 
         final channels = snapshot.data!;
+        final defaultChannel =
+            selectedChannel ??
+            channels.firstWhere(
+              (c) => c.name.contains('Tại cửa hàng'),
+              orElse: () => channels.first,
+            );
         return DropdownButtonFormField<int>(
-          initialValue: selectedChannel?.id ?? channels.first.id,
+          initialValue: defaultChannel.id,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -534,24 +540,62 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
           return const Text('Lỗi tải bảng giá');
         }
 
-        final priceBooks = snapshot.data!;
-        // TODO: Cần có logic để lấy bảng giá chung mặc định
-        final defaultPriceBook = priceBooks.firstWhere(
-          (pb) => pb.isGlobal,
-          orElse: () => priceBooks.first,
-        );
+        final priceBooks = List<KiotVietPriceBook>.from(snapshot.data ?? []);
+
+        // Ensure "Bảng giá chung" (id: 0) always exists in the list.
+        if (!priceBooks.any((pb) => pb.id == 0)) {
+          priceBooks.insert(
+            0,
+            const KiotVietPriceBook(
+              id: 0,
+              name: 'Bảng giá chung',
+              isActive: true, // Assume it's always usable
+              isGlobal: true,
+            ),
+          );
+        }
+
+        if (priceBooks.isEmpty) {
+          return const InputDecorator(
+            decoration: InputDecoration(
+              labelText: 'Bảng giá',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 12),
+            ),
+            child: Text('Không có bảng giá'),
+          );
+        }
+
+        // Determine the initial value, ensuring it exists in the list.
+        int? initialValue = selectedPriceBookId;
+        final bool valueExists = priceBooks.any((pb) => pb.id == initialValue);
+
+        if (initialValue == null || !valueExists) {
+          // Default to general price book (id: 0) if available, otherwise the first item.
+          initialValue = priceBooks.any((pb) => pb.id == 0)
+              ? 0
+              : priceBooks.first.id;
+        }
 
         return DropdownButtonFormField<int>(
-          value: selectedPriceBookId ?? defaultPriceBook.id,
+          isExpanded: true, // Tránh lỗi overflow khi tên bảng giá quá dài
+          initialValue: initialValue,
           decoration: const InputDecoration(
             labelText: 'Bảng giá',
             border: OutlineInputBorder(),
             contentPadding: EdgeInsets.symmetric(horizontal: 12),
           ),
-          items: priceBooks
-              .map((pb) => DropdownMenuItem(value: pb.id, child: Text(pb.name)))
-              .toList(),
-          onChanged: (value) {},
+          items: priceBooks.map((pb) {
+            return DropdownMenuItem(
+              value: pb.id,
+              child: Text(pb.name, overflow: TextOverflow.ellipsis),
+            );
+          }).toList(),
+          onChanged: (value) {
+            context.read<TemporaryOrderService>().setPriceBookForActiveOrder(
+              value,
+            );
+          },
         );
       },
     );
