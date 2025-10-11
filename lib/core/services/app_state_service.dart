@@ -27,12 +27,8 @@ class AppStateService with ChangeNotifier {
   bool _isInitialized = false;
   bool get isInitialized => _isInitialized;
 
-  AppStateService() {
-    _init();
-  }
-
   /// Initializes the service by loading SharedPreferences and persisted state.
-  Future<void> _init() async {
+  Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
     await _loadPersistedState();
     _isInitialized = true;

@@ -1,10 +1,13 @@
+import 'package:equatable/equatable.dart';
+
 /// Represents a single item in the cart/temporary order.
 /// NOTE: This is a simplified model. In a real app, it would be more complex,
 /// potentially linking to the full Product and Color models.
-class CartItem {
+class CartItem extends Equatable {
   final String productId;
   final String id; // Unique identifier for this specific cart item instance
-  final String productFullName;
+  final String
+  productFullName; // Tên đầy đủ của sản phẩm (bao gồm cả thuộc tính)
   final String productName;
   final String productCode;
   final String unit;
@@ -35,21 +38,40 @@ class CartItem {
     this.note,
   });
 
-  /// Calculates the final total for this line item.
-  double get lineTotal {
+  /// Tổng tiền trước khi áp dụng giảm giá.
+  double get totalBeforeDiscount => unitPrice * quantity;
+
+  /// Số tiền được giảm giá (tính toán từ % hoặc giá trị cố định).
+  double get discountAmount {
+    if (isDiscountPercentage) {
+      final effectiveDiscount = discount.clamp(0.0, 100.0);
+      return totalBeforeDiscount * (effectiveDiscount / 100);
+    }
+    // Đảm bảo giảm giá không vượt quá tổng tiền
+    return discount.clamp(0.0, totalBeforeDiscount);
+  }
+
+  /// Calculates the final total for this line item after discount.
+  /// Renamed from `lineTotal` for clarity.
+  double get totalAfterDiscount {
     if (overriddenLineTotal != null) {
       return overriddenLineTotal!;
     }
-    final double totalBeforeDiscount = unitPrice * quantity;
-    if (isDiscountPercentage) {
-      // Ensure discount doesn't exceed 100%
-      final effectiveDiscount = discount.clamp(0, 100);
-      return totalBeforeDiscount * (1 - (effectiveDiscount / 100));
-    } else {
-      // Ensure discount doesn't exceed the total price
-      return (totalBeforeDiscount - discount).clamp(0, double.infinity);
-    }
+    return (totalBeforeDiscount - discountAmount);
   }
+
+  @override
+  List<Object?> get props => [
+    id,
+    productId,
+    productFullName,
+    quantity,
+    unitPrice,
+    discount,
+    isDiscountPercentage,
+    overriddenLineTotal,
+    note,
+  ];
 
   CartItem copyWith({
     String? id,
@@ -66,6 +88,7 @@ class CartItem {
     double? overriddenLineTotal,
     String? note,
     bool clearOverriddenLineTotal = false,
+    bool clearNote = false,
   }) {
     return CartItem(
       id: id ?? this.id,
@@ -82,7 +105,7 @@ class CartItem {
       overriddenLineTotal: clearOverriddenLineTotal
           ? null
           : overriddenLineTotal ?? this.overriddenLineTotal,
-      note: note ?? this.note,
+      note: clearNote ? null : note ?? this.note,
     );
   }
 
@@ -104,11 +127,11 @@ class CartItem {
 
   factory CartItem.fromJson(Map<String, dynamic> json) => CartItem(
     // 'id' might be null in older saved data, so we need a fallback.
-    // However, new items should always have a UUID.
+    // New items should always have a UUID.
     // For simplicity, we'll require it and handle migration if necessary.
     id: json['id'] ?? '',
     productId: json['productId'] ?? '',
-    productFullName: json['productFullName'] ?? json['productName'],
+    productFullName: json['productFullName'] ?? json['productName'] ?? '',
     productName: json['productName'] ?? '',
     productCode: json['productCode'] ?? '',
     unit: json['unit'] ?? 'Cái',

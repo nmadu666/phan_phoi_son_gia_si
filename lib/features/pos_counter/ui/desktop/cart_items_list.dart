@@ -427,7 +427,7 @@ class _ReorderableRowState extends State<_ReorderableRow> {
                   _showEditDialog(
                     context,
                     title: 'Cập nhật thành tiền',
-                    initialValue: item.lineTotal.toStringAsFixed(0),
+ initialValue: item.totalAfterDiscount.toStringAsFixed(0),
                     onSave: (newValue) {
                       final newTotal = double.tryParse(newValue);
                       orderService.overrideItemLineTotal(item.id, newTotal);
@@ -436,7 +436,7 @@ class _ReorderableRowState extends State<_ReorderableRow> {
                 }
               : null,
           child: Text(
-            item.lineTotal.toStringAsFixed(0),
+ item.totalAfterDiscount.toStringAsFixed(0),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               fontWeight: FontWeight.bold,
               color: settings.allowEditLineTotal

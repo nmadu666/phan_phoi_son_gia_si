@@ -11,41 +11,48 @@ import 'package:provider/provider.dart';
 import 'package:phan_phoi_son_gia_si/firebase_options.dart';
 
 void main() async {
-  // Đảm bảo Flutter binding đã được khởi tạo.
-  // Đây là bước bắt buộc khi hàm main là một async function.
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Chờ cho Firebase khởi tạo xong trước khi chạy ứng dụng.
-  // Điều này đảm bảo mọi lệnh gọi đến Firebase sau đó đều hợp lệ.
-  // `DefaultFirebaseOptions.currentPlatform` sẽ tự động chọn cấu hình
-  // phù hợp cho web, android, ios, v.v.
+  // Khởi tạo Firebase
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Khởi tạo các service có trạng thái và cần tải dữ liệu bất đồng bộ
+  final appStateService = AppStateService();
+  await appStateService.init();
+
+  final posSettingsService = PosSettingsService();
+  await posSettingsService.init();
+
+  final authService = AuthService();
+  final appUserService = AppUserService();
+
+  final temporaryOrderService = TemporaryOrderService(
+    authService: authService,
+    appUserService: appUserService,
+  );
+  await temporaryOrderService.init();
+
   runApp(
     MultiProvider(
       providers: [
-        // Cung cấp KiotVietOrderService cho toàn bộ ứng dụng
+        // Các service không có trạng thái hoặc không cần khởi tạo async
         Provider<KiotVietOrderService>(create: (_) => KiotVietOrderService()),
-        Provider<AppUserService>(create: (_) => AppUserService()),
-        ChangeNotifierProvider(create: (_) => AppStateService()),
-        ChangeNotifierProvider(create: (context) => AuthService()),
-        // TemporaryOrderService depends on Auth and AppUser services to set the default seller.
+        Provider.value(value: appUserService),
+
+        // Các service đã được khởi tạo, cung cấp instance bằng .value
+        ChangeNotifierProvider.value(value: appStateService),
+        ChangeNotifierProvider.value(value: posSettingsService),
+        ChangeNotifierProvider.value(value: authService),
+
+        // Sử dụng ProxyProvider để cập nhật dependency khi authService thay đổi
         ChangeNotifierProxyProvider<AuthService, TemporaryOrderService>(
-          create: (context) => TemporaryOrderService(
-            appUserService: context.read<AppUserService>(),
-            authService: context.read<AuthService>(),
-          ),
-          update: (context, auth, previous) {
-            // When auth state changes, update the dependencies in TemporaryOrderService.
-            // This is useful if a new user logs in.
-            previous?.updateDependencies(
-              appUserService: context.read<AppUserService>(),
-              authService: auth,
-            );
-            return previous!;
-          },
+          // Cung cấp instance đã được khởi tạo ban đầu
+          create: (_) => temporaryOrderService,
+          // Khi authService thay đổi (ví dụ: đăng nhập/đăng xuất),
+          // cập nhật lại dependency cho temporaryOrderService.
+          update: (_, auth, previous) =>
+ previous!..updateDependencies(authService: auth, appUserService: appUserService),
         ),
-        ChangeNotifierProvider(create: (context) => PosSettingsService()),
-        // Thêm các provider khác ở đây nếu cần
       ],
       child: const MyApp(),
     ),
@@ -59,23 +66,8 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'POS Ngành Sơn',
+      title: 'Phân Phối Sơn Giá Sỉ',
       theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),

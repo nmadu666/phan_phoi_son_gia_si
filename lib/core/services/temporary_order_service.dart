@@ -52,8 +52,12 @@ class TemporaryOrderService with ChangeNotifier {
     required AppUserService appUserService,
     required AuthService authService,
   }) : _appUserService = appUserService,
-       _authService = authService {
-    loadOrders();
+       _authService = authService;
+
+  /// Initializes the service by loading orders from storage.
+  /// This should be called once when the app starts.
+  Future<void> init() async {
+    await loadOrders();
   }
 
   /// Updates the service's dependencies when they change.

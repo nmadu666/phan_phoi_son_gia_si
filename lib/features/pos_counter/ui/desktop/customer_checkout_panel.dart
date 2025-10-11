@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/dialogs/print_preview_dialog.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_sale_channel.dart';
@@ -15,6 +16,7 @@ import 'package:phan_phoi_son_gia_si/core/models/kiotviet_customer.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_customer_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:intl/intl.dart';
+import 'package:phan_phoi_son_gia_si/core/models/print_template.dart';
 
 import '../../../../core/models/temporary_order.dart';
 import '../../../../core/services/app_state_service.dart';
@@ -174,19 +176,47 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
 
         // Action Buttons
         const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: () {
-              // TODO: Implement checkout logic
-            },
-            icon: const Icon(Icons.payment),
-            label: const Text('Thanh toán'),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              textStyle: const TextStyle(fontSize: 16),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: activeOrder.items.isEmpty
+                    ? null
+                    : () {
+                        showDialog(
+                          context: context,
+                          builder: (_) => PrintPreviewDialog(
+                            order: activeOrder,
+                            templateType: PrintTemplateType.invoice,
+                          ),
+                        );
+                      },
+                icon: const Icon(Icons.print_outlined),
+                label: const Text('In hóa đơn'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  textStyle: const TextStyle(fontSize: 16),
+                ),
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 2,
+              child: FilledButton.icon(
+                onPressed: activeOrder.items.isEmpty
+                    ? null
+                    : () {
+                        // TODO: Implement checkout logic
+                      },
+                icon: const Icon(Icons.payment),
+                label: const Text('Thanh toán'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  textStyle: const TextStyle(fontSize: 16),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

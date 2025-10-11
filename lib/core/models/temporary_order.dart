@@ -1,10 +1,11 @@
+import 'package:equatable/equatable.dart';
 import 'package:phan_phoi_son_gia_si/core/models/cart_item.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_customer.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_sale_channel.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_user.dart';
 
 /// Represents a temporary order that can be saved and restored.
-class TemporaryOrder {
+class TemporaryOrder extends Equatable {
   final String id;
   String name;
   List<CartItem> items;
@@ -35,14 +36,32 @@ class TemporaryOrder {
 
   bool get isImportedFromKiotViet => kiotvietOrderId != null;
 
-  /// Calculates the grand total for this order.
-  double get total {
-    double total = 0;
-    for (var item in items) {
-      total += item.lineTotal;
-    }
-    return total;
-  }
+  /// Calculates the grand total for this order after all line-item discounts.
+  double get total => items.fold(
+    0.0,
+    (previousValue, item) => previousValue + item.totalAfterDiscount,
+  );
+
+  /// Calculates the total before any line-item discounts.
+  double get totalBeforeDiscount => items.fold(
+    0.0,
+    (previousValue, item) => previousValue + item.totalBeforeDiscount,
+  );
+
+  @override
+  List<Object?> get props => [
+    id,
+    name,
+    items,
+    description,
+    createdAt,
+    customer,
+    seller,
+    saleChannel,
+    kiotvietOrderId,
+    kiotvietOrderCode,
+    priceBookId,
+  ];
 
   TemporaryOrder copyWith({
     String? id,
