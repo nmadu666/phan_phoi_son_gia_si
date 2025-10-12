@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:phan_phoi_son_gia_si/core/services/store_info_service.dart';
+import 'package:phan_phoi_son_gia_si/core/utils/receipt_printer_service.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_sale_channel.dart';
@@ -16,6 +18,7 @@ import 'package:phan_phoi_son_gia_si/core/services/kiotviet_customer_service.dar
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:intl/intl.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/dialogs/create_customer_dialog.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/print_preview_screen.dart';
 
 import '../../../../core/models/temporary_order.dart';
 import '../../../../core/services/app_state_service.dart';
@@ -35,6 +38,7 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
   final KiotVietSaleChannelService _saleChannelService =
       KiotVietSaleChannelService();
   final KiotVietPriceBookService _priceBookService = KiotVietPriceBookService();
+  final ReceiptPrinterService _printerService = ReceiptPrinterService();
 
   late Future<List<KiotVietUser>> _usersFuture;
   late Future<List<KiotVietSaleChannel>> _saleChannelsFuture;
@@ -179,7 +183,16 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () => {},
+                onPressed: activeOrder.items.isEmpty
+                    ? null
+                    : () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                PrintPreviewScreen(order: activeOrder),
+                          ),
+                        );
+                      },
                 icon: const Icon(Icons.print_outlined),
                 label: const Text('In hóa đơn'),
                 style: OutlinedButton.styleFrom(

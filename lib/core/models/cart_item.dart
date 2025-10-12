@@ -5,22 +5,18 @@ import 'package:equatable/equatable.dart';
 /// potentially linking to the full Product and Color models.
 class CartItem extends Equatable {
   final String productId;
-  final String id; // Unique identifier for this specific cart item instance
-  final String
-  productFullName; // Tên đầy đủ của sản phẩm (bao gồm cả thuộc tính)
+  final String id;
+  final String productFullName;
   final String productName;
   final String productCode;
   final String unit;
-  double quantity;
-  double unitPrice;
-  double discount; // The value of the discount
-  final bool
-  isMaster; // True if this is the original item, false if it's a duplicate
-  bool
-  isDiscountPercentage; // True if discount is a percentage, false for fixed amount
-  String? note;
-  double?
-  overriddenLineTotal; // If not null, this value overrides the calculated total
+  final double quantity;
+  final double unitPrice;
+  final double discount;
+  final bool isMaster;
+  final bool isDiscountPercentage;
+  final String? note;
+  final double? overriddenLineTotal;
 
   CartItem({
     required this.productId,
@@ -72,6 +68,14 @@ class CartItem extends Equatable {
     overriddenLineTotal,
     note,
   ];
+
+  @override
+  String toString() {
+    return 'CartItem(id: $id, name: $productFullName, qty: $quantity, '
+        'price: $unitPrice, discount: $discount, '
+        'isPercentage: $isDiscountPercentage, total: $totalAfterDiscount, '
+        'note: $note)';
+  }
 
   CartItem copyWith({
     String? id,
@@ -126,21 +130,21 @@ class CartItem extends Equatable {
   };
 
   factory CartItem.fromJson(Map<String, dynamic> json) => CartItem(
-    // 'id' might be null in older saved data, so we need a fallback.
-    // New items should always have a UUID.
-    // For simplicity, we'll require it and handle migration if necessary.
-    id: json['id'] ?? '',
-    productId: json['productId'] ?? '',
-    productFullName: json['productFullName'] ?? json['productName'] ?? '',
-    productName: json['productName'] ?? '',
-    productCode: json['productCode'] ?? '',
-    unit: json['unit'] ?? 'Cái',
+    id: json['id'] as String? ?? '',
+    productId: json['productId'] as String? ?? '',
+    productFullName:
+        json['productFullName'] as String? ??
+        json['productName'] as String? ??
+        '',
+    productName: json['productName'] as String? ?? '',
+    productCode: json['productCode'] as String? ?? '',
+    unit: json['unit'] as String? ?? 'Cái',
     quantity: (json['quantity'] as num?)?.toDouble() ?? 1.0,
     unitPrice: (json['unitPrice'] as num?)?.toDouble() ?? 0.0,
     discount: (json['discount'] as num?)?.toDouble() ?? 0.0,
-    isMaster: json['isMaster'] ?? true,
-    isDiscountPercentage: json['isDiscountPercentage'] ?? false,
+    isMaster: json['isMaster'] as bool? ?? true,
+    isDiscountPercentage: json['isDiscountPercentage'] as bool? ?? false,
     overriddenLineTotal: (json['overriddenLineTotal'] as num?)?.toDouble(),
-    note: json['note'],
+    note: json['note'] as String?,
   );
 }

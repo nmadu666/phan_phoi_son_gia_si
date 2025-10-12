@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/search_bar_panel.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/search_bar_panel_wrapper.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/cart_items_list.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/desktop/branch_selector.dart';
+import 'package:provider/provider.dart';
 
+import '../../../../core/services/temporary_order_service.dart';
 import 'customer_checkout_panel.dart';
 
 /// Defines the types of sales modes available in the bottom navigation bar.
@@ -148,27 +152,16 @@ class _DeliverySaleView extends StatelessWidget {
                 const Expanded(child: CartItemsList()),
                 const SizedBox(height: 8),
                 // 2. Description and Checkout are now in a Row
-                Row(
+                const Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Expanded(
-                      flex: 2,
-                      child: TextField(
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(),
-                          labelText: 'Mô tả đơn hàng',
-                        ),
-                        maxLines: 3,
-                      ),
-                    ),
+                  children: [
+                    Expanded(flex: 2, child: _OrderDescriptionField()),
                     SizedBox(width: 8),
                     Expanded(
                       flex: 1,
                       child: SizedBox(
                         height: 120,
-                        child: Placeholder(
-                          child: Center(child: Text('Checkout')),
-                        ),
+                        child: Placeholder(child: Center(child: Text('Checkout'))),
                       ),
                     ),
                   ],
@@ -237,14 +230,7 @@ class _NormalSaleView extends StatelessWidget {
                 // 1. The list of items in the cart.
                 Expanded(child: CartItemsList()),
                 SizedBox(height: 8),
-                // 2. The resizable description text field at the bottom.
-                TextField(
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Mô tả đơn hàng',
-                  ),
-                  maxLines: 3,
-                ),
+                _OrderDescriptionField(),
               ],
             ),
           ),
@@ -302,16 +288,7 @@ class _QuickSaleView extends StatelessWidget {
                 // 1. The list of items in the cart.
                 Expanded(child: CartItemsList()),
 
-                SizedBox(height: 8),
-
-                // 2. The resizable description text field at the bottom.
-                TextField(
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(),
-                    labelText: 'Mô tả đơn hàng',
-                  ),
-                  maxLines: 3, // Allows the field to expand up to 3 lines.
-                ),
+                SizedBox(height: 8), _OrderDescriptionField(),
               ],
             ),
           ),
@@ -327,6 +304,76 @@ class _QuickSaleView extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// A stateful widget that handles the display and editing of the active order's description.
+/// It debounces user input to avoid excessive updates to the order service.
+class _OrderDescriptionField extends StatefulWidget {
+  final int maxLines;
+
+  const _OrderDescriptionField({this.maxLines = 3});
+
+  @override
+  State<_OrderDescriptionField> createState() => _OrderDescriptionFieldState();
+}
+
+class _OrderDescriptionFieldState extends State<_OrderDescriptionField> {
+  final TextEditingController _controller = TextEditingController();
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    // Listen for text changes to trigger the debounced save.
+    _controller.addListener(_onTextChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Update the controller's text when the active order's description changes.
+    // This handles cases like switching between temporary orders.
+    final description =
+        context.watch<TemporaryOrderService>().activeOrder?.description ?? '';
+    if (_controller.text != description) {
+      _controller.text = description;
+    }
+  }
+
+  void _onTextChanged() {
+    // Cancel any existing timer.
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+
+    // Start a new timer. After 500ms, update the order description.
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      // Check if the widget is still in the tree before calling the service.
+      if (mounted) {
+        context
+            .read<TemporaryOrderService>()
+            .updateOrderDescription(_controller.text);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.removeListener(_onTextChanged);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _controller,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        labelText: 'Mô tả đơn hàng',
+      ),
+      maxLines: widget.maxLines,
     );
   }
 }

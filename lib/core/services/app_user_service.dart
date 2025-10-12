@@ -1,12 +1,18 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart' as auth;
 import 'package:phan_phoi_son_gia_si/core/models/app_user.dart';
 import 'package:phan_phoi_son_gia_si/core/models/app_user_with_details.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_branch.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_user.dart';
 
-class AppUserService {
+class AppUserService with ChangeNotifier {
   final FirebaseFirestore _firestore;
+
+  AppUser? _appUser;
+  AppUser? get appUser => _appUser;
+
+  bool _isInitialized = false;
 
   AppUserService({FirebaseFirestore? firestore})
     : _firestore = firestore ?? FirebaseFirestore.instance;
@@ -17,6 +23,22 @@ class AppUserService {
         fromFirestore: (snapshot, _) => AppUser.fromFirestore(snapshot),
         toFirestore: (user, _) => user.toFirestore(),
       );
+
+  /// Initializes the service for the current user.
+  /// Should be called after login.
+  Future<void> initForCurrentUser(auth.User? firebaseUser) async {
+    if (firebaseUser == null) {
+      _appUser = null;
+      _isInitialized = false;
+      notifyListeners();
+      return;
+    }
+    if (_isInitialized && _appUser?.uid == firebaseUser.uid) return;
+
+    _appUser = await getUser(firebaseUser.uid);
+    _isInitialized = true;
+    notifyListeners();
+  }
 
   /// Retrieves a stream of the AppUser document from Firestore.
   Stream<AppUser?> userStream(String uid) {

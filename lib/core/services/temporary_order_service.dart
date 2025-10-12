@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:collection/collection.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_order.dart';
@@ -32,6 +33,7 @@ class TemporaryOrderService with ChangeNotifier {
   List<TemporaryOrder> _orders = [];
   String? _activeOrderId;
   bool _isInitialized = false;
+  Timer? _saveDebounce;
 
   List<TemporaryOrder> get orders => _orders;
   String? get activeOrderId => _activeOrderId;
@@ -69,34 +71,11 @@ class TemporaryOrderService with ChangeNotifier {
 
     if (ordersJson != null) {
       final List<dynamic> decoded = jsonDecode(ordersJson);
-      _orders.clear(); // Clear existing orders before loading new ones
-      _orders = decoded.map((item) {
-        final itemsList = (item['items'] as List)
-            .map((cartItem) => CartItem.fromJson(cartItem))
-            .toList();
-        final customerData = item['customer'];
-        final sellerData = item['seller'];
-        final saleChannelData = item['saleChannel'];
-        return TemporaryOrder(
-          id: item['id'],
-          name: item['name'],
-          description: item['description'],
-          createdAt: DateTime.parse(item['createdAt']),
-          items: itemsList,
-          customer: customerData != null
-              ? KiotVietCustomer.fromJson(customerData)
-              : null,
-          seller: sellerData != null ? KiotVietUser.fromJson(sellerData) : null,
-          saleChannel: saleChannelData != null
-              ? KiotVietSaleChannel.fromJson(saleChannelData)
-              : null,
-          kiotvietOrderId: item['kiotvietOrderId'],
-          kiotvietOrderCode: item['kiotvietOrderCode'],
-          priceBookId: item['priceBookId'], // Tải priceBookId đã lưu
-        );
-      }).toList();
+      _orders = decoded
+          .map((data) => TemporaryOrder.fromJson(data as Map<String, dynamic>))
+          .toList();
     } else {
-      _orders = []; // Ensure list is empty if nothing is loaded
+      _orders.clear(); // Ensure list is empty if nothing is loaded
     }
 
     // If no orders exist after loading, create a default one.
@@ -114,22 +93,21 @@ class TemporaryOrderService with ChangeNotifier {
   /// Saves the current list of orders to persistent storage.
   Future<void> _saveOrders() async {
     final prefs = await SharedPreferences.getInstance();
-    final List<Map<String, dynamic>> ordersToSave = _orders.map((order) {
-      return {
-        'id': order.id,
-        'name': order.name,
-        'description': order.description,
-        'createdAt': order.createdAt.toIso8601String(),
-        'items': order.items.map((item) => item.toJson()).toList(),
-        'customer': order.customer?.toJson(),
-        'seller': order.seller?.toJson(),
-        'saleChannel': order.saleChannel?.toJson(),
-        'kiotvietOrderId': order.kiotvietOrderId,
-        'kiotvietOrderCode': order.kiotvietOrderCode,
-        'priceBookId': order.priceBookId, // Lưu priceBookId
-      };
-    }).toList();
+    final List<Map<String, dynamic>> ordersToSave = _orders
+        .map((order) => order.toJson())
+        .toList();
+    debugPrint(
+      'TemporaryOrderService: Saving ${_orders.length} orders to SharedPreferences.',
+    );
     await prefs.setString(_storageKey, jsonEncode(ordersToSave));
+  }
+
+  /// Schedules a save operation with a debounce mechanism to avoid excessive writes.
+  void _scheduleSave() {
+    // If there's an active debounce timer, cancel it.
+    _saveDebounce?.cancel();
+    // Start a new timer. After 500ms, call _saveOrders.
+    _saveDebounce = Timer(const Duration(milliseconds: 500), _saveOrders);
   }
 
   /// Creates a new, empty temporary order and sets it as active.
@@ -172,7 +150,7 @@ class TemporaryOrderService with ChangeNotifier {
     _activeOrderId = newOrder.id;
 
     if (withSave) {
-      await _saveOrders();
+      _scheduleSave();
     }
     return newOrder.id;
   }
@@ -193,7 +171,7 @@ class TemporaryOrderService with ChangeNotifier {
       }
     }
 
-    await _saveOrders();
+    _scheduleSave();
     notifyListeners(); // Notify after saving changes.
   }
 
@@ -211,74 +189,74 @@ class TemporaryOrderService with ChangeNotifier {
   /// already exists in the cart, its quantity is incremented. Otherwise, a new
   /// master `CartItem` is created and added to the order.
   void addKiotVietProductToActiveOrder(KiotVietProduct product) {
-    _updateAndSave(() {
-      _ensureActiveOrder();
-      final order = activeOrder;
-      if (order == null) {
-        debugPrint(
-          "Failed to add product: Could not determine an active order.",
-        );
-        return;
-      }
+    _updateActiveOrder((order) {
+      final List<CartItem> updatedItems = List.from(order.items);
 
       // Try to find an existing "master" item for this product.
-      final existingItemIndex = order.items.indexWhere(
+      final existingItemIndex = updatedItems.indexWhere(
         (item) => item.productId == product.id && item.isMaster,
       );
 
       if (existingItemIndex != -1) {
         // Item exists, increment quantity.
-        order.items[existingItemIndex].quantity++;
+        final oldItem = updatedItems[existingItemIndex];
+        updatedItems[existingItemIndex] = oldItem.copyWith(
+          quantity: oldItem.quantity + 1,
+          clearOverriddenLineTotal: true, // Reset override on quantity change
+        );
       } else {
         // Item does not exist, add a new "master" item.
         final newItem = CartItem(
-          id: _uuid.v4(), // Generate a unique ID for the cart item
+          id: _uuid.v4(),
           productId: product.id,
           productFullName: product.fullName,
           productName: product.name,
           productCode: product.code,
           unit: product.unit,
           unitPrice: product.basePrice,
-          isMaster: true, // This is a master item
+          isMaster: true,
         );
-        order.items.add(newItem);
+        updatedItems.add(newItem);
       }
+      return order.copyWith(items: updatedItems);
     });
   }
 
   /// Finds an item in the active order by its unique cart item ID.
   /// This is more efficient than iterating the list every time.
   CartItem? findItemInActiveOrder(String cartItemId) {
-    // Using .firstWhereOrNull from collection package is cleaner.
-    return activeOrder?.items.firstWhereOrNull((item) => item.id == cartItemId);
+    return activeOrder?.findItem(cartItemId);
   }
 
   /// Updates the quantity of an item in the active order.
   void updateItemQuantity(String cartItemId, double newQuantity) {
-    _updateAndSave(() {
-      final item = findItemInActiveOrder(cartItemId);
-      if (item != null) {
-        if (newQuantity <= 0) {
-          // If quantity is zero or less, remove the item
-          activeOrder?.items.removeWhere((i) => i.id == cartItemId);
-        } else {
-          item.quantity = newQuantity;
-        }
-        // When quantity changes, the overridden total might no longer be valid.
-        item.overriddenLineTotal = null;
+    _updateActiveOrder((order) {
+      final List<CartItem> updatedItems = List.from(order.items);
+      final itemIndex = updatedItems.indexWhere((i) => i.id == cartItemId);
+
+      if (itemIndex == -1) return order;
+
+      if (newQuantity <= 0) {
+        updatedItems.removeAt(itemIndex);
+      } else {
+        updatedItems[itemIndex] = updatedItems[itemIndex].copyWith(
+          quantity: newQuantity,
+          clearOverriddenLineTotal: true,
+        );
       }
+      return order.copyWith(items: updatedItems);
     });
   }
 
   /// Updates the unit price of an item in the active order.
   void updateItemUnitPrice(String cartItemId, double newUnitPrice) {
-    final item = findItemInActiveOrder(cartItemId);
-    if (item != null && newUnitPrice >= 0) {
-      item.unitPrice = newUnitPrice;
-      // When unit price changes, the overridden total might no longer be valid.
-      item.overriddenLineTotal = null;
-      _updateAndSave(() {}); // Save and notify
-    }
+    _updateItemInActiveOrder(cartItemId, (item) {
+      if (newUnitPrice < 0) return item;
+      return item.copyWith(
+        unitPrice: newUnitPrice,
+        clearOverriddenLineTotal: true,
+      );
+    });
   }
 
   /// Applies a discount to an item in the active order.
@@ -290,14 +268,13 @@ class TemporaryOrderService with ChangeNotifier {
     double discountValue, {
     required bool isPercentage,
   }) {
-    final item = findItemInActiveOrder(cartItemId);
-    _updateAndSave(() {
-      if (item != null && discountValue >= 0) {
-        item.discount = discountValue;
-        item.isDiscountPercentage = isPercentage;
-        // When discount changes, the overridden total might no longer be valid.
-        item.overriddenLineTotal = null;
-      }
+    _updateItemInActiveOrder(cartItemId, (item) {
+      if (discountValue < 0) return item;
+      return item.copyWith(
+        discount: discountValue,
+        isDiscountPercentage: isPercentage,
+        clearOverriddenLineTotal: true,
+      );
     });
   }
 
@@ -305,74 +282,72 @@ class TemporaryOrderService with ChangeNotifier {
   /// When this is set, it bypasses all other calculations for the item's total.
   /// To remove the override, set [newTotal] to null.
   void overrideItemLineTotal(String cartItemId, double? newTotal) {
-    final item = findItemInActiveOrder(cartItemId);
-    _updateAndSave(() {
-      if (item != null) {
-        if (newTotal != null && newTotal < 0) {
-          return; // Cannot have negative total
-        }
+    _updateItemInActiveOrder(cartItemId, (item) {
+      if (newTotal != null && newTotal < 0) return item;
 
-        item.overriddenLineTotal = newTotal;
-
-        // If override is removed, reset discount to 0
-        if (newTotal == null) {
-          item.discount = 0;
-          item.isDiscountPercentage = false;
-        }
-      }
+      // If override is removed, reset discount to 0.
+      // Otherwise, set the new total.
+      return item.copyWith(
+        overriddenLineTotal: newTotal,
+        clearOverriddenLineTotal: newTotal == null,
+        discount: newTotal == null ? 0 : item.discount,
+        isDiscountPercentage: newTotal == null
+            ? false
+            : item.isDiscountPercentage,
+      );
     });
   }
 
   /// Removes an item from the active order.
   void removeItem(String cartItemId) {
-    _updateAndSave(() {
-      final order = activeOrder;
-      if (order == null) return;
-      order.items.removeWhere((item) => item.id == cartItemId);
+    _updateActiveOrder((order) {
+      final updatedItems = order.items
+          .where((item) => item.id != cartItemId)
+          .toList();
+      return order.copyWith(items: updatedItems);
     });
   }
 
   /// Duplicates an item in the active order.
   /// The new item will have a new unique ID and will be marked as not a master item.
   void duplicateItem(CartItem itemToDuplicate) {
-    _updateAndSave(() {
-      final order = activeOrder;
-      if (order == null) return;
-
+    _updateActiveOrder((order) {
       // Create a new item by copying the original and assigning a new ID.
       final newItem = itemToDuplicate.copyWith(
         id: _uuid.v4(),
         isMaster: false, // The duplicated item is not a master
       );
-
-      order.items.add(newItem);
+      final updatedItems = [...order.items, newItem];
+      return order.copyWith(items: updatedItems);
     });
   }
 
   /// Updates the note of an item in the active order.
   void updateItemNote(String cartItemId, String? newNote) {
-    final item = findItemInActiveOrder(cartItemId);
-    if (item != null) {
-      // Set note to null if it's an empty string, otherwise use the new note.
-      item.note = (newNote != null && newNote.trim().isEmpty) ? null : newNote;
-      _updateAndSave(() {});
-    }
+    _updateItemInActiveOrder(cartItemId, (item) {
+      final trimmedNote = newNote?.trim();
+      return item.copyWith(
+        note: (trimmedNote != null && trimmedNote.isNotEmpty)
+            ? trimmedNote
+            : null,
+        clearNote: (trimmedNote == null || trimmedNote.isEmpty),
+      );
+    });
   }
 
   /// Reorders an item in the active order's item list.
   void reorderItem(int oldIndex, int newIndex) {
-    _updateAndSave(() {
-      final order = activeOrder;
-      if (order == null) return;
-
+    _updateActiveOrder((order) {
+      final List<CartItem> updatedItems = List.from(order.items);
       // If the item is moved to a lower position in the list,
       // the new index needs to be adjusted.
       if (newIndex > oldIndex) {
         newIndex -= 1;
       }
 
-      final item = order.items.removeAt(oldIndex);
-      order.items.insert(newIndex, item);
+      final item = updatedItems.removeAt(oldIndex);
+      updatedItems.insert(newIndex, item);
+      return order.copyWith(items: updatedItems);
     });
   }
 
@@ -445,77 +420,90 @@ class TemporaryOrderService with ChangeNotifier {
     );
 
     // 4. Thêm vào danh sách, đặt làm đơn hàng hoạt động và lưu lại
-    _updateAndSave(() {
-      // Giới hạn số lượng đơn tạm
-      if (_orders.length >= 20) _orders.removeAt(0);
-      _orders.add(newOrder);
-      _activeOrderId = newOrder.id;
-    });
+    // Giới hạn số lượng đơn tạm
+    if (_orders.length >= 20) _orders.removeAt(0);
+    _orders.add(newOrder);
+    _activeOrderId = newOrder.id;
+
+    _scheduleSave();
+    notifyListeners();
   }
 
   /// Sets the customer for the active order.
   void setCustomerForActiveOrder(KiotVietCustomer customer) {
-    _updateAndSave(() {
-      final order = activeOrder;
-      if (order != null) {
-        order.customer = customer;
-      }
-    });
+    _updateActiveOrder((order) => order.copyWith(customer: customer));
   }
 
   /// Removes the customer from the active order.
   void removeCustomerFromActiveOrder() {
-    _updateAndSave(() {
-      final order = activeOrder;
-      if (order != null) {
-        order.customer = null;
-      }
-    });
+    _updateActiveOrder((order) => order.copyWith(clearCustomer: true));
   }
 
   /// Sets or removes the seller for the active order.
   ///
   /// Pass a [KiotVietUser] object to set the seller, or `null` to remove them.
   void setSellerForActiveOrder(KiotVietUser? seller) {
-    _updateAndSave(() {
-      final order = activeOrder;
-      // Only update if the seller has actually changed to avoid unnecessary rebuilds.
-      if (order != null && order.seller?.id != seller?.id) {
-        order.seller = seller;
-      }
+    _updateActiveOrder((order) {
+      if (order.seller?.id == seller?.id) return order;
+      return order.copyWith(seller: seller, clearSeller: seller == null);
     });
   }
 
   /// Sets the sale channel for the active order.
   void setSaleChannelForActiveOrder(KiotVietSaleChannel channel) {
-    _updateAndSave(() {
-      final order = activeOrder;
-      // Only update if the channel has actually changed.
-      if (order != null && order.saleChannel?.id != channel.id) {
-        order.saleChannel = channel;
-      }
+    _updateActiveOrder((order) {
+      if (order.saleChannel?.id == channel.id) return order;
+      return order.copyWith(saleChannel: channel);
     });
   }
 
   /// Sets the price book for the active order.
   void setPriceBookForActiveOrder(int? priceBookId) {
-    _updateAndSave(() {
-      final order = activeOrder;
-      // Only update if the price book has actually changed to avoid unnecessary rebuilds.
-      if (order != null && order.priceBookId != priceBookId) {
-        order.priceBookId = priceBookId;
-        // TODO: Add logic to re-calculate prices based on the new price book if needed.
-      }
+    _updateActiveOrder((order) {
+      if (order.priceBookId == priceBookId) return order;
+      // TODO: Add logic to re-calculate prices based on the new price book if needed.
+      return order.copyWith(
+        priceBookId: priceBookId,
+        clearPriceBookId: priceBookId == null,
+      );
     });
   }
 
+  /// Updates the description of the active order.
+  void updateOrderDescription(String? newDescription) {
+    _updateActiveOrder((order) {
+      final trimmedDescription = newDescription?.trim();
+      return order.copyWith(
+        description: (trimmedDescription != null && trimmedDescription.isNotEmpty)
+            ? trimmedDescription
+            : null,
+        clearDescription: (trimmedDescription == null || trimmedDescription.isEmpty),
+      );
+    });
+  }
   // --- Private Helper Methods ---
+  /// A more robust wrapper for updating the active order with an immutable pattern.
+  void _updateActiveOrder(TemporaryOrder Function(TemporaryOrder) updateFn) {
+    _ensureActiveOrder();
+    final currentOrder = activeOrder;
+    if (currentOrder == null) return;
 
-  /// A wrapper to perform an update, then save and notify listeners.
-  void _updateAndSave(void Function() updateFn) {
-    updateFn();
-    _saveOrders();
-    notifyListeners();
+    final newOrder = updateFn(currentOrder);
+
+    final index = _orders.indexWhere((o) => o.id == _activeOrderId);
+    if (index != -1) {
+      _orders[index] = newOrder;
+      _scheduleSave();
+      notifyListeners();
+    }
+  }
+
+  /// A helper to update a single item within the active order.
+  void _updateItemInActiveOrder(
+    String cartItemId,
+    CartItem Function(CartItem) updateFn,
+  ) {
+    _updateActiveOrder((order) => order.updateItem(cartItemId, updateFn));
   }
 
   /// Ensures there is an active order. If not, creates one or sets an existing one.
@@ -529,5 +517,26 @@ class TemporaryOrderService with ChangeNotifier {
         _activeOrderId = _orders.last.id;
       }
     }
+  }
+}
+
+/// Extension methods for the immutable TemporaryOrder.
+extension TemporaryOrderUpdate on TemporaryOrder {
+  /// Updates a single item within the order using an immutable pattern.
+  TemporaryOrder updateItem(
+    String cartItemId,
+    CartItem Function(CartItem) updateFn,
+  ) {
+    final itemIndex = items.indexWhere((i) => i.id == cartItemId);
+    if (itemIndex == -1) {
+      return this; // Item not found, return original order
+    }
+
+    final List<CartItem> updatedItems = List.from(items);
+    final oldItem = updatedItems[itemIndex];
+    final newItem = updateFn(oldItem);
+
+    updatedItems[itemIndex] = newItem;
+    return copyWith(items: updatedItems);
   }
 }

@@ -5,6 +5,7 @@ import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_state_service.dart';
 import 'package:phan_phoi_son_gia_si/core/api/kiotviet_order_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
+import 'package:phan_phoi_son_gia_si/core/services/store_info_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/pos_settings_service.dart';
 import 'package:phan_phoi_son_gia_si/features/auth/ui/auth_gate.dart';
 import 'package:provider/provider.dart';
@@ -26,6 +27,9 @@ void main() async {
   final authService = AuthService();
   final appUserService = AppUserService();
 
+  final storeInfoService = StoreInfoService();
+  await storeInfoService.init();
+
   final temporaryOrderService = TemporaryOrderService(
     authService: authService,
     appUserService: appUserService,
@@ -43,6 +47,7 @@ void main() async {
         ChangeNotifierProvider.value(value: appStateService),
         ChangeNotifierProvider.value(value: posSettingsService),
         ChangeNotifierProvider.value(value: authService),
+        ChangeNotifierProvider.value(value: storeInfoService),
         ChangeNotifierProvider.value(value: temporaryOrderService),
       ],
       child: const MyApp(),
