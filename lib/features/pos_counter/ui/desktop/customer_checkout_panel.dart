@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/dialogs/print_preview_dialog.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_sale_channel.dart';
@@ -16,7 +15,6 @@ import 'package:phan_phoi_son_gia_si/core/models/kiotviet_customer.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_customer_service.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:intl/intl.dart';
-import 'package:phan_phoi_son_gia_si/core/models/print_template.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/dialogs/create_customer_dialog.dart';
 
 import '../../../../core/models/temporary_order.dart';
@@ -181,17 +179,7 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
           children: [
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: activeOrder.items.isEmpty
-                    ? null
-                    : () {
-                        showDialog(
-                          context: context,
-                          builder: (_) => PrintPreviewDialog(
-                            order: activeOrder,
-                            templateType: PrintTemplateType.invoice,
-                          ),
-                        );
-                      },
+                onPressed: () => {},
                 icon: const Icon(Icons.print_outlined),
                 label: const Text('In hóa đơn'),
                 style: OutlinedButton.styleFrom(
@@ -264,157 +252,6 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
           ),
         ),
       ],
-    );
-  }
-
-  /// Hiển thị dialog để tạo khách hàng mới.
-  void _showCreateCustomerDialog(
-    String initialName, // Nhận service như một tham số
-  ) {
-    final nameController = TextEditingController(text: initialName);
-    final phoneController = TextEditingController();
-    final addressController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-    // Sử dụng ValueNotifier để quản lý trạng thái loading của nút Lưu
-    final isLoading = ValueNotifier<bool>(false);
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Tạo khách hàng mới'),
-          content: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: nameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Tên khách hàng *',
-                    ),
-                    validator: (value) => (value == null || value.isEmpty)
-                        ? 'Vui lòng nhập tên'
-                        : null,
-                  ),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: phoneController,
-                    decoration: const InputDecoration(
-                      labelText: 'Số điện thoại',
-                    ),
-                    keyboardType: TextInputType.phone,
-                  ),
-                  const SizedBox(height: 8),
-                  TextFormField(
-                    controller: addressController,
-                    decoration: const InputDecoration(labelText: 'Địa chỉ'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Hủy'),
-            ),
-            // Sử dụng ValueListenableBuilder để rebuild nút khi trạng thái loading thay đổi
-            ValueListenableBuilder<bool>(
-              valueListenable: isLoading,
-              builder: (context, loading, child) {
-                return FilledButton(
-                  onPressed: loading
-                      ? null // Vô hiệu hóa nút khi đang tải
-                      : () async {
-                          if (!formKey.currentState!.validate()) {
-                            return;
-                          }
-
-                          isLoading.value = true;
-
-                          // Lấy các service cần thiết một cách an toàn
-                          final customerService = dialogContext
-                              .read<KiotVietCustomerService>();
-                          final orderService = dialogContext
-                              .read<TemporaryOrderService>();
-                          final appState = dialogContext
-                              .read<AppStateService>();
-                          final branchId = appState.get<int>(
-                            AppStateService.selectedBranchIdKey,
-                          );
-
-                          if (branchId == null) {
-                            // Xử lý lỗi nếu không có chi nhánh nào được chọn
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Lỗi: Chưa chọn chi nhánh.'),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
-                            isLoading.value = false;
-                            return;
-                          }
-
-                          try {
-                            // Gọi service để tạo khách hàng trên Firestore
-                            final newCustomer = await customerService
-                                .createCustomer(
-                                  name: nameController.text,
-                                  contactNumber: phoneController.text,
-                                  address: addressController.text,
-                                  branchId: branchId,
-                                );
-
-                            // Đóng dialog sau khi hoàn tất
-                            if (dialogContext.mounted) {
-                              Navigator.of(dialogContext).pop();
-                            }
-
-                            // CRITICAL: Update the order state AFTER the dialog has been popped
-                            // to prevent the disposed EngineFlutterView error.
-                            // Using a post-frame callback is the safest way.
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              orderService.setCustomerForActiveOrder(
-                                newCustomer,
-                              );
-                            });
-                          } catch (e) {
-                            // Xử lý lỗi nếu có
-                            // Check if the original context for the panel is still mounted
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Tạo khách hàng thất bại: $e'),
-                                  backgroundColor: Colors.red,
-                                ),
-                              );
-                            }
-                          } finally {
-                            // Luôn đảm bảo tắt trạng thái loading
-                            // Check if the dialog's context is still mounted
-                            if (dialogContext.mounted) {
-                              isLoading.value = false;
-                            }
-                          }
-                        },
-                  child: loading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text('Lưu'),
-                );
-              },
-            ),
-          ],
-        );
-      },
     );
   }
 
