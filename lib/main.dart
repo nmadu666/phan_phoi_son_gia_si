@@ -36,23 +36,14 @@ void main() async {
     MultiProvider(
       providers: [
         // Các service không có trạng thái hoặc không cần khởi tạo async
-        Provider<KiotVietOrderService>(create: (_) => KiotVietOrderService()),
-        Provider.value(value: appUserService),
-
-        // Các service đã được khởi tạo, cung cấp instance bằng .value
+        Provider(create: (_) => KiotVietOrderService()),
+        Provider.value(
+          value: appUserService,
+        ), // Hoặc Provider(create: (_) => appUserService)
         ChangeNotifierProvider.value(value: appStateService),
         ChangeNotifierProvider.value(value: posSettingsService),
         ChangeNotifierProvider.value(value: authService),
-
-        // Sử dụng ProxyProvider để cập nhật dependency khi authService thay đổi
-        ChangeNotifierProxyProvider<AuthService, TemporaryOrderService>(
-          // Cung cấp instance đã được khởi tạo ban đầu
-          create: (_) => temporaryOrderService,
-          // Khi authService thay đổi (ví dụ: đăng nhập/đăng xuất),
-          // cập nhật lại dependency cho temporaryOrderService.
-          update: (_, auth, previous) =>
- previous!..updateDependencies(authService: auth, appUserService: appUserService),
-        ),
+        ChangeNotifierProvider.value(value: temporaryOrderService),
       ],
       child: const MyApp(),
     ),

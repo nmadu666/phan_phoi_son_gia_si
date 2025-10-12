@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:phan_phoi_son_gia_si/core/models/print_template.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/print_preview_service.dart';
@@ -7,6 +8,17 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:printing/printing.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:htmltopdfwidgets/htmltopdfwidgets.dart' as htw;
+
+/// Hàm top-level để chuyển đổi HTML sang PDF, được thiết kế để chạy trong một Isolate riêng biệt.
+/// Điều này ngăn chặn việc block luồng UI chính khi thực hiện các tác vụ nặng.
+Future<Uint8List> _generatePdfFromHtml(String htmlContent) async {
+  final pdf = pw.Document();
+  final List<pw.Widget> widgets = await htw.HTMLToPdf().convert(htmlContent);
+
+  pdf.addPage(pw.MultiPage(build: (context) => widgets));
+
+  return pdf.save();
+}
 
 /// Một dialog để xem trước và chọn mẫu in cho một đơn hàng.
 class PrintPreviewDialog extends StatelessWidget {
@@ -78,25 +90,11 @@ class PrintPreviewDialog extends StatelessWidget {
                       final content = service.previewContent;
                       if (content == null) return;
 
-                      // Sử dụng `htmltopdfwidgets` để chuyển đổi HTML thành các widget PDF.
-                      // Sau đó dùng `printing` để tạo layout và in.
+                      // Chuyển tác vụ tạo PDF nặng sang một Isolate khác bằng `compute`.
+                      // Điều này giúp UI không bị "đơ" trong quá trình xử lý.
                       await Printing.layoutPdf(
-                        onLayout: (format) async {
-                          // 1. Tạo một tài liệu PDF mới.
-                          final pdf = pw.Document();
-
-                          // 2. Chuyển đổi chuỗi HTML thành danh sách các widget PDF.
-                          final List<pw.Widget> widgets = await htw.HTMLToPdf()
-                              .convert(content);
-
-                          // 3. Thêm các widget đã chuyển đổi vào trang PDF.
-                          pdf.addPage(
-                            pw.MultiPage(build: (context) => widgets),
-                          );
-
-                          // 4. Trả về dữ liệu PDF đã được tạo.
-                          return pdf.save();
-                        },
+                        onLayout: (format) =>
+                            compute(_generatePdfFromHtml, content),
                       );
                     },
                     icon: const Icon(Icons.print),

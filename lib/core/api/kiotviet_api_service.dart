@@ -1,6 +1,49 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
+/// Interceptor để tự động làm mới access token khi nó hết hạn.
+///
+/// Interceptor này sẽ bắt lỗi 401 Unauthorized từ API,
+/// sau đó gọi một endpoint đặc biệt trên proxy để yêu cầu token mới.
+/// Khi có token mới, nó sẽ tự động thử lại yêu cầu đã thất bại.
+class TokenRefreshInterceptor extends QueuedInterceptor {
+  final Dio _dio;
+  final Future<Response?> Function() _refreshToken;
+
+  TokenRefreshInterceptor(this._dio, this._refreshToken);
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    // Nếu không phải lỗi 401, bỏ qua và để các interceptor khác xử lý.
+    if (err.response?.statusCode != 401) {
+      handler.next(err);
+      return;
+    }
+
+    // Xử lý lỗi 401 Unauthorized
+    try {
+      // 1. Gọi hàm để refresh token. QueuedInterceptor sẽ tự động
+      // xếp hàng các request đến sau trong khi quá trình này diễn ra.
+      final response = await _refreshToken();
+
+      // 2. Nếu refresh thành công (proxy trả về 200)
+      if (response?.statusCode == 200) {
+        // 3. Thực hiện lại yêu cầu ban đầu đã thất bại.
+        final responseCloned = await _dio.fetch(err.requestOptions);
+
+        // 4. Hoàn thành yêu cầu với dữ liệu mới.
+        handler.resolve(responseCloned);
+      } else {
+        // Nếu refresh thất bại, trả về lỗi 401 ban đầu.
+        handler.next(err);
+      }
+    } catch (e) {
+      // Nếu có lỗi trong quá trình refresh, trả về lỗi 401 ban đầu.
+      handler.next(err);
+    }
+  }
+}
+
 class KiotVietApiService {
   final Dio _dio;
 
@@ -8,15 +51,25 @@ class KiotVietApiService {
       'https://asia-southeast1-phan-phoi-son-gia-si.cloudfunctions.net/kiotvietProxy';
 
   KiotVietApiService({Dio? dio}) : _dio = dio ?? Dio() {
-    // Cho phép inject một Dio instance đã được cấu hình sẵn,
-    // ví dụ: với interceptor để ghi log cho mục đích debug.
-    if (dio == null) {
-      // Chỉ thêm LogInterceptor trong chế độ debug
-      if (kDebugMode) {
-        _dio.interceptors.add(
-          LogInterceptor(requestBody: true, responseBody: true),
-        );
-      }
+    // Thêm interceptor để tự động refresh token.
+    // Interceptor này phải được thêm trước LogInterceptor để nó xử lý lỗi 401 trước khi log.
+    _dio.interceptors.add(TokenRefreshInterceptor(_dio, refreshToken));
+
+    // Chỉ thêm LogInterceptor trong chế độ debug để dễ dàng theo dõi request/response.
+    if (kDebugMode) {
+      _dio.interceptors.add(
+        LogInterceptor(
+          requestBody: true,
+          responseBody: true,
+          // Không log lỗi 401 vì nó sẽ được xử lý và thử lại.
+          // Điều này giúp console log sạch hơn.
+          error: true,
+          logPrint: (object) {
+            if (object.toString().contains('401')) return;
+            debugPrint(object.toString());
+          },
+        ),
+      );
     }
   }
 
@@ -76,6 +129,14 @@ class KiotVietApiService {
   /// Yêu cầu này được thực hiện thông qua Firebase Function proxy.
   Future<Response?> put(String path, {Map<String, dynamic>? data}) async {
     return _makeProxyRequest('put', path, data: data);
+  }
+
+  /// Gửi yêu cầu đặc biệt đến proxy để làm mới KiotViet access token.
+  ///
+  /// Firebase Function proxy sẽ nhận diện endpoint '/refreshToken' và thực hiện
+  /// logic gọi đến KiotViet để lấy token mới.
+  Future<Response?> refreshToken() async {
+    return _makeProxyRequest('post', '/refreshToken');
   }
 
   // Example function to get products

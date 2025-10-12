@@ -1,6 +1,7 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/pos_settings_service.dart';
+import 'package:collection/collection.dart';
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:provider/provider.dart';
 
@@ -18,21 +19,17 @@ class CartItemsList extends StatefulWidget {
 class _CartItemsListState extends State<CartItemsList> {
   @override
   Widget build(BuildContext context) {
-    return Consumer<TemporaryOrderService>(
-      builder: (context, orderService, child) {
-        // Find the currently active order.
-        // Using a try-catch block is safer than firstWhere with orElse
-        // if the list could be empty during initialization.
-        TemporaryOrder? activeOrder;
-        try {
-          activeOrder = orderService.orders.firstWhere(
-            (order) => order.id == orderService.activeOrderId,
-          );
-        } catch (e) {
-          activeOrder = null;
-        }
+    // TỐI ƯU: Sử dụng Selector để chỉ rebuild khi danh sách ID thay đổi (thêm/xóa/sắp xếp).
+    // Điều này ngăn việc rebuild toàn bộ list khi chỉ một item thay đổi (vd: số lượng).
+    final itemIds = context.select<TemporaryOrderService, List<String>>(
+      (service) => service.activeOrder?.items.map((e) => e.id).toList() ?? [],
+    );
 
-        if (activeOrder == null || activeOrder.items.isEmpty) {
+    final orderService = context.read<TemporaryOrderService>();
+
+    return Consumer<PosSettingsService>(
+      builder: (context, settingsService, child) {
+        if (itemIds.isEmpty) {
           return const Center(
             child: Text(
               'Chưa có sản phẩm trong giỏ hàng',
@@ -41,38 +38,49 @@ class _CartItemsListState extends State<CartItemsList> {
           );
         }
 
-        // Use another Consumer for settings to rebuild when settings change.
-        return Consumer<PosSettingsService>(
-          builder: (context, settingsService, child) {
-            final settings = settingsService.settings;
+        final settings = settingsService.settings;
 
-            // Using ReorderableListView to allow drag-and-drop functionality.
-            // We manually build a header row and then the list of items
-            // to maintain a table-like appearance.
-            return Column(
-              children: [
-                _buildHeaderRow(settings),
-                Expanded(
-                  child: ReorderableListView.builder(
-                    itemCount: activeOrder!.items.length,
-                    itemBuilder: (context, index) {
-                      final item = activeOrder!.items[index];
-                      return _ReorderableRow(
-                        context,
-                        orderService,
-                        item,
-                        index,
-                        settings,
-                        // Use a unique key for each item to help the reorderable list
-                        key: ValueKey(item.id),
+        // Sử dụng lại ReorderableListView để có tính năng kéo-thả.
+        // Hiệu ứng thêm/xóa sẽ được xử lý bên trong _ReorderableRow.
+        return Column(
+          children: [
+            _buildHeaderRow(settings),
+            Expanded(
+              child: ReorderableListView.builder(
+                itemCount: itemIds.length,
+                itemBuilder: (context, index) {
+                  final itemId = itemIds[index];
+                  return _ReorderableRow(
+                    // Truyền itemId thay vì cả object CartItem
+                    itemId: itemId,
+                    index: index,
+                    // Sử dụng ValueKey để ReorderableListView nhận diện đúng item
+                    key: ValueKey(itemId),
+                  );
+                },
+                proxyDecorator: (Widget child, int index, Animation<double> animation) {
+                  // Sử dụng AnimatedBuilder để tạo hiệu ứng "nâng lên" mượt mà.
+                  return AnimatedBuilder(
+                    animation: animation,
+                    builder: (BuildContext context, Widget? child) {
+                      // Nội suy giá trị elevation từ 0 (trạng thái nghỉ) đến 6 (trạng thái kéo).
+                      final double animValue = Curves.easeInOut.transform(animation.value);
+                      final double elevation = lerpDouble(0, 6.0, animValue)!;
+                      return Material(
+                        elevation: elevation,
+                        color: Theme.of(context).cardColor, // Đảm bảo màu nền phù hợp
+                        shadowColor: Colors.black.withAlpha(50), // Màu bóng
+                        borderRadius: BorderRadius.circular(8),
+                        child: child,
                       );
                     },
-                    onReorder: orderService.reorderItem,
-                  ),
-                ),
-              ],
-            );
-          },
+                    child: child,
+                  );
+                },
+                onReorder: orderService.reorderItem,
+              ),
+            ),
+          ],
         );
       },
     );
@@ -161,18 +169,13 @@ class _CartItemsListState extends State<CartItemsList> {
 }
 
 class _ReorderableRow extends StatefulWidget {
-  final BuildContext context;
-  final TemporaryOrderService orderService;
-  final CartItem item;
+  // TỐI ƯU: Chỉ nhận itemId và index. Dữ liệu sẽ được lấy qua Selector.
+  final String itemId;
   final int index;
-  final PosSettings settings;
 
-  const _ReorderableRow(
-    this.context,
-    this.orderService,
-    this.item,
-    this.index,
-    this.settings, {
+  const _ReorderableRow({
+    required this.itemId,
+    required this.index,
     required super.key,
   });
 
@@ -180,28 +183,71 @@ class _ReorderableRow extends StatefulWidget {
   State<_ReorderableRow> createState() => _ReorderableRowState();
 }
 
-class _ReorderableRowState extends State<_ReorderableRow> {
+class _ReorderableRowState extends State<_ReorderableRow>
+    with SingleTickerProviderStateMixin {
   bool _isHovered = false;
+  late AnimationController _animationController;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
+    );
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeOut,
+    );
+    // Chạy animation khi widget được thêm vào cây lần đầu
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    // TỐI ƯU: Sử dụng Selector để chỉ rebuild widget này khi CartItem tương ứng thay đổi.
+    final item = context.select<TemporaryOrderService, CartItem?>(
+      (service) => service.findItemInActiveOrder(widget.itemId),
+    );
+
+    // Nếu item đã bị xóa khỏi service, chạy animation biến mất
+    if (item == null) {
+      _animationController.reverse();
+      // Trả về một widget trống trong khi animation chạy
+      return SizeTransition(
+        sizeFactor: _animation,
+        child: const SizedBox.shrink(),
+      );
+    }
+
+    // Lấy các service và settings cần thiết. `read` không gây rebuild.
+    final orderService = context.read<TemporaryOrderService>();
+    final settings = context.read<PosSettingsService>().settings;
+
     final rowContent = Container(
       decoration: BoxDecoration(
-        color: _isHovered ? Colors.grey.withOpacity(0.1) : null,
+        color: _isHovered ? Colors.grey.withAlpha(100) : null,
         border: Border(
           bottom: BorderSide(color: Theme.of(context).dividerColor, width: 1),
         ),
       ),
       child: Table(
-        columnWidths: _getColumnWidths(widget.settings),
+        columnWidths: _getColumnWidths(settings),
         defaultVerticalAlignment: TableCellVerticalAlignment.middle,
         children: [
           TableRow(
             children: _buildCells(
-              settings: widget.settings,
-              item: widget.item,
+              settings: settings,
+              item: item,
               index: widget.index,
-              orderService: widget.orderService,
+              orderService: orderService,
               isHovered: _isHovered,
             ),
           ),
@@ -209,22 +255,26 @@ class _ReorderableRowState extends State<_ReorderableRow> {
       ),
     );
 
-    return GestureDetector(
-      onDoubleTap: () {
-        _showNoteEditDialog(
-          context,
-          initialValue: widget.item.note ?? '',
-          onSave: (newNote) {
-            widget.orderService.updateItemNote(widget.item.id, newNote);
-          },
-        );
-      },
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: Tooltip(
-          message: widget.item.note ?? 'Nhấp đúp để thêm ghi chú',
-          child: rowContent,
+    // Bọc row content trong SizeTransition để có hiệu ứng thêm/xóa
+    return SizeTransition(
+      sizeFactor: _animation,
+      child: GestureDetector(
+        onDoubleTap: () {
+          _showNoteEditDialog(
+            context,
+            initialValue: item.note ?? '',
+            onSave: (newNote) {
+              orderService.updateItemNote(item.id, newNote);
+            },
+          );
+        },
+        child: MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          child: Tooltip(
+            message: item.note ?? 'Nhấp đúp để thêm ghi chú',
+            child: rowContent,
+          ),
         ),
       ),
     );
@@ -427,7 +477,7 @@ class _ReorderableRowState extends State<_ReorderableRow> {
                   _showEditDialog(
                     context,
                     title: 'Cập nhật thành tiền',
- initialValue: item.totalAfterDiscount.toStringAsFixed(0),
+                    initialValue: item.totalAfterDiscount.toStringAsFixed(0),
                     onSave: (newValue) {
                       final newTotal = double.tryParse(newValue);
                       orderService.overrideItemLineTotal(item.id, newTotal);
@@ -436,7 +486,7 @@ class _ReorderableRowState extends State<_ReorderableRow> {
                 }
               : null,
           child: Text(
- item.totalAfterDiscount.toStringAsFixed(0),
+            item.totalAfterDiscount.toStringAsFixed(0),
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
               fontWeight: FontWeight.bold,
               color: settings.allowEditLineTotal
@@ -476,7 +526,14 @@ class _ReorderableRowState extends State<_ReorderableRow> {
             icon: const Icon(Icons.delete_outline, color: Colors.red),
             tooltip: 'Xóa sản phẩm',
             onPressed: () {
-              orderService.removeItem(item.id);
+              // Chạy animation trước khi thực sự xóa item
+              _animationController.reverse().then((_) {
+                // Chỉ gọi xóa sau khi animation hoàn tất
+                // Kiểm tra mounted để tránh lỗi nếu widget đã bị hủy
+                if (mounted) {
+                  orderService.removeItem(item.id);
+                }
+              });
             },
           ),
         ],

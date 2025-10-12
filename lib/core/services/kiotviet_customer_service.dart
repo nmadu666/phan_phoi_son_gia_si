@@ -21,15 +21,12 @@ class KiotVietCustomerService {
 
   List<String> _generateSearchKeywords(String name, String? contactNumber) {
     final nonDiacriticName = _removeDiacritics(name.toLowerCase());
-    final keywords = <String>{};
+    final nameParts = nonDiacriticName.split(' ').where((s) => s.isNotEmpty);
 
-    // Thêm các từ trong tên
-    keywords.addAll(nonDiacriticName.split(' ').where((s) => s.isNotEmpty));
-
-    // Thêm số điện thoại nếu có
-    if (contactNumber != null && contactNumber.isNotEmpty) {
-      keywords.add(contactNumber);
-    }
+    final keywords = {
+      ...nameParts,
+      if (contactNumber != null && contactNumber.isNotEmpty) contactNumber,
+    };
 
     return keywords.toList();
   }

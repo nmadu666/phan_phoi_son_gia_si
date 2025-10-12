@@ -17,6 +17,7 @@ import 'package:phan_phoi_son_gia_si/core/services/kiotviet_customer_service.dar
 import 'package:phan_phoi_son_gia_si/core/services/temporary_order_service.dart';
 import 'package:intl/intl.dart';
 import 'package:phan_phoi_son_gia_si/core/models/print_template.dart';
+import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/dialogs/create_customer_dialog.dart';
 
 import '../../../../core/models/temporary_order.dart';
 import '../../../../core/services/app_state_service.dart';
@@ -244,7 +245,21 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
                   .removeCustomerFromActiveOrder();
             },
             onCreateNewCustomer: (name) {
-              _showCreateCustomerDialog(name);
+              showDialog(
+                context: context,
+                builder: (dialogContext) => CreateCustomerDialog(
+                  initialName: name,
+                  onCustomerCreated: (newCustomer) {
+                    // CRITICAL: Cập nhật state của order SAU KHI dialog đã đóng
+                    // để tránh lỗi. Sử dụng post-frame callback là an toàn nhất.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      context
+                          .read<TemporaryOrderService>()
+                          .setCustomerForActiveOrder(newCustomer);
+                    });
+                  },
+                ),
+              );
             },
           ),
         ),
@@ -702,6 +717,10 @@ class __CustomerAutocompleteState extends State<_CustomerAutocomplete> {
   bool _hasMore = true;
   String? _error;
 
+  // Biến để lưu trữ query cuối cùng đã được gửi đến Firestore.
+  // Dùng để tối ưu, tránh gọi lại Firestore khi chỉ cần lọc trên client.
+  String _lastFirestoreQuery = '';
+
   @override
   void initState() {
     super.initState();
@@ -747,12 +766,14 @@ class __CustomerAutocompleteState extends State<_CustomerAutocomplete> {
   Future<void> _fetchInitialData(String query) async {
     if (_isLoading) return;
 
-    // Get services and state from context BEFORE the async gap.
+    // Lấy các service và state từ context TRƯỚC khi có async gap.
     final appState = context.read<AppStateService>();
     final authService = context.read<AuthService>();
     final appUserService = context.read<AppUserService>();
 
-    final branchId = appState.get<int>(AppStateService.selectedBranchIdKey);
+    final int? branchId = appState.get<int>(
+      AppStateService.selectedBranchIdKey,
+    );
 
     setState(() {
       _isLoading = true;
@@ -760,6 +781,7 @@ class __CustomerAutocompleteState extends State<_CustomerAutocomplete> {
       _lastDocument = null;
       _hasMore = true;
       _error = null;
+      _lastFirestoreQuery = query; // Cập nhật query cuối cùng
     });
 
     try {
@@ -798,11 +820,15 @@ class __CustomerAutocompleteState extends State<_CustomerAutocomplete> {
 
     setState(() => _isLazyLoading = true);
 
+    // Lấy các service và state từ context TRƯỚC khi có async gap.
+    final appState = context.read<AppStateService>();
+    final authService = context.read<AuthService>();
+    final appUserService = context.read<AppUserService>();
+    final int? branchId = appState.get<int>(
+      AppStateService.selectedBranchIdKey,
+    );
+
     try {
-      final appState = context.read<AppStateService>();
-      final authService = context.read<AuthService>();
-      final appUserService = context.read<AppUserService>();
-      final branchId = appState.get<int>(AppStateService.selectedBranchIdKey);
       final appUser = authService.currentUser != null
           ? await appUserService.getUser(authService.currentUser!.uid)
           : null;
@@ -857,11 +883,30 @@ class __CustomerAutocompleteState extends State<_CustomerAutocomplete> {
         }
 
         if (_debounce?.isActive ?? false) _debounce!.cancel();
-        _debounce = Timer(const Duration(milliseconds: 500), () {
-          _fetchInitialData(textEditingValue.text);
+        _debounce = Timer(const Duration(milliseconds: 400), () {
+          final newQuery = textEditingValue.text.trim();
+          // TỐI ƯU: Chỉ gọi Firestore khi:
+          // 1. Query mới không phải là phần mở rộng của query cũ (ví dụ: xóa và gõ lại).
+          // 2. Hoặc khi danh sách kết quả hiện tại rỗng.
+          if (!newQuery.toLowerCase().startsWith(
+                _lastFirestoreQuery.toLowerCase(),
+              ) ||
+              _searchResults.isEmpty) {
+            _fetchInitialData(newQuery);
+          } else {
+            // Nếu không, chỉ cần cập nhật lại UI để nó tự lọc danh sách hiện có.
+            // Không cần làm gì ở đây vì Autocomplete sẽ tự rebuild và lọc `_searchResults`.
+            // Chúng ta chỉ cần đảm bảo `_searchResults` không bị xóa.
+            setState(() {}); // Force rebuild để optionsView cập nhật
+          }
         });
 
-        return _searchResults;
+        // Lọc kết quả ngay trên client
+        final lowercaseQuery = textEditingValue.text.toLowerCase();
+        return _searchResults.where((customer) {
+          return customer.name.toLowerCase().contains(lowercaseQuery) ||
+              (customer.contactNumber?.contains(lowercaseQuery) ?? false);
+        });
       },
       onSelected: (selection) {
         // Use a post-frame callback for maximum safety when updating state

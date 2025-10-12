@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:collection/collection.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_order.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
@@ -22,10 +23,9 @@ import '../models/kiotviet_user.dart';
 class TemporaryOrderService with ChangeNotifier {
   static const _storageKey = 'temporary_orders';
   final Uuid _uuid = const Uuid();
-  AppUserService _appUserService;
-  AuthService _authService;
+  final AppUserService _appUserService;
+  final AuthService _authService;
   final KiotVietCustomerService _customerService = KiotVietCustomerService();
-  // Thêm KiotVietProductService để lấy chi tiết sản phẩm
   final KiotVietUserService _userService = KiotVietUserService();
   final KiotVietProductService _productService = KiotVietProductService();
 
@@ -43,7 +43,7 @@ class TemporaryOrderService with ChangeNotifier {
     if (_activeOrderId == null) return null;
     try {
       return _orders.firstWhere((o) => o.id == _activeOrderId);
-    } catch (e) {
+    } on StateError {
       return null; // Not found
     }
   }
@@ -58,16 +58,6 @@ class TemporaryOrderService with ChangeNotifier {
   /// This should be called once when the app starts.
   Future<void> init() async {
     await loadOrders();
-  }
-
-  /// Updates the service's dependencies when they change.
-  void updateDependencies({
-    required AppUserService appUserService,
-    required AuthService authService,
-  }) {
-    _appUserService = appUserService;
-    _authService = authService;
-    // Could potentially reload orders if user changes, but for now it's simple.
   }
 
   /// Loads orders from persistent storage.
@@ -158,7 +148,7 @@ class TemporaryOrderService with ChangeNotifier {
     // Enforce a limit of 20 temporary orders.
     if (_orders.length >= 20) {
       // In a real app, you might want to signal this to the UI.
-      print('Maximum number of temporary orders (20) reached.');
+      debugPrint('Maximum number of temporary orders (20) reached.');
       return null;
     }
     // Get the default seller for the new order
@@ -225,7 +215,9 @@ class TemporaryOrderService with ChangeNotifier {
       _ensureActiveOrder();
       final order = activeOrder;
       if (order == null) {
-        print("Failed to add product: Could not determine an active order.");
+        debugPrint(
+          "Failed to add product: Could not determine an active order.",
+        );
         return;
       }
 
@@ -255,19 +247,16 @@ class TemporaryOrderService with ChangeNotifier {
   }
 
   /// Finds an item in the active order by its unique cart item ID.
-  CartItem? _findItemInActiveOrder(String cartItemId) {
-    final order = activeOrder;
-    try {
-      return order?.items.firstWhere((item) => item.id == cartItemId);
-    } catch (e) {
-      return null; // Order or item not found
-    }
+  /// This is more efficient than iterating the list every time.
+  CartItem? findItemInActiveOrder(String cartItemId) {
+    // Using .firstWhereOrNull from collection package is cleaner.
+    return activeOrder?.items.firstWhereOrNull((item) => item.id == cartItemId);
   }
 
   /// Updates the quantity of an item in the active order.
   void updateItemQuantity(String cartItemId, double newQuantity) {
     _updateAndSave(() {
-      final item = _findItemInActiveOrder(cartItemId);
+      final item = findItemInActiveOrder(cartItemId);
       if (item != null) {
         if (newQuantity <= 0) {
           // If quantity is zero or less, remove the item
@@ -283,7 +272,7 @@ class TemporaryOrderService with ChangeNotifier {
 
   /// Updates the unit price of an item in the active order.
   void updateItemUnitPrice(String cartItemId, double newUnitPrice) {
-    final item = _findItemInActiveOrder(cartItemId);
+    final item = findItemInActiveOrder(cartItemId);
     if (item != null && newUnitPrice >= 0) {
       item.unitPrice = newUnitPrice;
       // When unit price changes, the overridden total might no longer be valid.
@@ -301,7 +290,7 @@ class TemporaryOrderService with ChangeNotifier {
     double discountValue, {
     required bool isPercentage,
   }) {
-    final item = _findItemInActiveOrder(cartItemId);
+    final item = findItemInActiveOrder(cartItemId);
     _updateAndSave(() {
       if (item != null && discountValue >= 0) {
         item.discount = discountValue;
@@ -316,7 +305,7 @@ class TemporaryOrderService with ChangeNotifier {
   /// When this is set, it bypasses all other calculations for the item's total.
   /// To remove the override, set [newTotal] to null.
   void overrideItemLineTotal(String cartItemId, double? newTotal) {
-    final item = _findItemInActiveOrder(cartItemId);
+    final item = findItemInActiveOrder(cartItemId);
     _updateAndSave(() {
       if (item != null) {
         if (newTotal != null && newTotal < 0) {
@@ -362,7 +351,7 @@ class TemporaryOrderService with ChangeNotifier {
 
   /// Updates the note of an item in the active order.
   void updateItemNote(String cartItemId, String? newNote) {
-    final item = _findItemInActiveOrder(cartItemId);
+    final item = findItemInActiveOrder(cartItemId);
     if (item != null) {
       // Set note to null if it's an empty string, otherwise use the new note.
       item.note = (newNote != null && newNote.trim().isEmpty) ? null : newNote;
@@ -397,9 +386,9 @@ class TemporaryOrderService with ChangeNotifier {
 
       return CartItem(
         id: _uuid.v4(),
-        productId: detail.productId.toString(), // FIX: Convert int to String
-        productCode: detail.productCode ?? '', // FIX: Handle potential null
-        productName: detail.productName ?? '', // FIX: Handle potential null
+        productId: detail.productId.toString(),
+        productCode: detail.productCode ?? '',
+        productName: detail.productName ?? '',
         // Sử dụng fullName từ sản phẩm chi tiết nếu có, nếu không thì dùng productName
         productFullName: product?.fullName ?? detail.productName ?? '',
         // Lấy đơn vị tính từ sản phẩm chi tiết
@@ -408,7 +397,6 @@ class TemporaryOrderService with ChangeNotifier {
         unitPrice: detail.price,
         isMaster: true, // Coi mỗi dòng từ KiotViet là một dòng "master"
         note: detail.note,
-        // FIX: Xử lý giảm giá từ KiotViet order detail
         // KiotViet API có thể trả về cả chiết khấu theo % và theo tiền.
         // Ưu tiên chiết khấu theo tiền mặt nếu có, nếu không thì dùng %.
         discount: detail.discount ?? detail.discountRatio ?? 0,
@@ -421,23 +409,24 @@ class TemporaryOrderService with ChangeNotifier {
     // Chờ tất cả các future lấy thông tin sản phẩm hoàn thành
     final cartItems = await Future.wait(productFutures);
 
-    // 2. Lấy thông tin khách hàng, nhân viên, kênh bán song song
-    final results = await Future.wait([
-      if (kiotvietOrder.customerId != null)
-        _customerService.getCustomerById(kiotvietOrder.customerId!),
-      if (kiotvietOrder.soldById != null)
-        _userService.getUserById(kiotvietOrder.soldById!),
-      // TODO: Cần có service để lấy KiotVietSaleChannel bằng ID
-      // Future.value(null), // Placeholder for saleChannel
-    ]);
-
-    final KiotVietCustomer? customer = results.isNotEmpty
-        ? results[0] as KiotVietCustomer?
-        : null;
-    final KiotVietUser? seller = results.length > 1
-        ? results[1] as KiotVietUser?
-        : null;
-    // final KiotVietSaleChannel? saleChannel = results.length > 2 ? results[2] as KiotVietSaleChannel? : null;
+    // 2. Lấy thông tin khách hàng và nhân viên song song một cách an toàn hơn.
+    final ({KiotVietCustomer? customer, KiotVietUser? seller}) relatedData =
+        await () async {
+          final results = await Future.wait([
+            if (kiotvietOrder.customerId != null)
+              _customerService.getCustomerById(kiotvietOrder.customerId!),
+            if (kiotvietOrder.soldById != null)
+              _userService.getUserById(kiotvietOrder.soldById!),
+          ]);
+          return (
+            customer: results.isNotEmpty && results.firstOrNull != null
+                ? results.firstOrNull as KiotVietCustomer?
+                : null,
+            seller: results.length > 1 && results[1] != null
+                ? results[1] as KiotVietUser?
+                : null,
+          );
+        }();
 
     // 3. Tạo một đơn hàng tạm mới từ thông tin đã import.
     // Tên của đơn hàng tạm sẽ là mã đơn hàng KiotViet.
@@ -445,12 +434,12 @@ class TemporaryOrderService with ChangeNotifier {
       id: _uuid.v4(),
       name: kiotvietOrder.code,
       items: cartItems,
-      customer: customer,
+      customer: relatedData.customer,
       // Gán các thông tin từ KiotViet để phân biệt
       kiotvietOrderId: kiotvietOrder.id,
       kiotvietOrderCode: kiotvietOrder.code,
       description: kiotvietOrder.description,
-      seller: seller,
+      seller: relatedData.seller,
       // saleChannel: saleChannel,
       priceBookId: kiotvietOrder.priceBookId,
     );
@@ -499,17 +488,13 @@ class TemporaryOrderService with ChangeNotifier {
 
   /// Sets the sale channel for the active order.
   void setSaleChannelForActiveOrder(KiotVietSaleChannel channel) {
-    if (_activeOrderId == null) return;
-    try {
-      final activeOrder = _orders.firstWhere((o) => o.id == _activeOrderId);
-      if (activeOrder.saleChannel?.id != channel.id) {
-        activeOrder.saleChannel = channel;
-        _saveOrders();
-        notifyListeners();
+    _updateAndSave(() {
+      final order = activeOrder;
+      // Only update if the channel has actually changed.
+      if (order != null && order.saleChannel?.id != channel.id) {
+        order.saleChannel = channel;
       }
-    } catch (e) {
-      print("Error setting sale channel for active order: $e");
-    }
+    });
   }
 
   /// Sets the price book for the active order.
