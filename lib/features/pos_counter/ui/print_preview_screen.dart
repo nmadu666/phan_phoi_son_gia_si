@@ -21,12 +21,12 @@ class PrintPreviewScreen extends StatefulWidget {
 class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
   late StoreInfo _selectedStore;
   late TextEditingController _titleController;
-  final ReceiptPrinterService _printerService = ReceiptPrinterService();
 
   @override
   void initState() {
     super.initState();
     final storeService = context.read<StoreInfoService>();
+    // Lấy service từ context thay vì tạo mới
     _selectedStore = storeService.defaultStore;
     _titleController = TextEditingController(text: 'HÓA ĐƠN BÁN HÀNG');
   }
@@ -121,7 +121,8 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
 
   /// Tạo file PDF dựa trên các tùy chọn hiện tại
   Future<Uint8List> _generatePdf(PdfPageFormat format) async {
-    final doc = await _printerService.generatePdfDocument(
+    final printerService = context.read<ReceiptPrinterService>();
+    final doc = await printerService.generatePdfDocument(
       widget.order,
       _selectedStore,
       title: _titleController.text,

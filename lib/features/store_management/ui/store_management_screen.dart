@@ -7,11 +7,17 @@ import 'package:provider/provider.dart';
 class StoreManagementScreen extends StatelessWidget {
   const StoreManagementScreen({super.key});
 
-  void _showEditDialog(BuildContext context, {StoreInfo? store}) {
-    showDialog(
+  // Chuyển thành async để có thể chờ dialog đóng lại
+  Future<void> _showEditDialog(BuildContext context, {StoreInfo? store}) async {
+    // Chờ dialog trả về kết quả. Nếu là `true`, nghĩa là đã lưu thành công.
+    final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => EditStoreDialog(store: store),
     );
+    // Nếu lưu thành công, thông báo cho các listener để cập nhật lại UI.
+    if (result == true && context.mounted) {
+      context.read<StoreInfoService>().forceReload();
+    }
   }
 
   Future<void> _deleteStore(BuildContext context, StoreInfo store) async {
@@ -44,9 +50,9 @@ class StoreManagementScreen extends StatelessWidget {
         }
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Lỗi khi xóa cửa hàng: $e')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Lỗi khi xóa cửa hàng: $e')));
         }
       }
     }
@@ -58,25 +64,31 @@ class StoreManagementScreen extends StatelessWidget {
     final stores = storeService.stores;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Quản lý Cửa hàng'),
-      ),
+      appBar: AppBar(title: const Text('Quản lý Cửa hàng')),
       body: ListView.builder(
         itemCount: stores.length,
         itemBuilder: (context, index) {
           final store = stores[index];
+          ImageProvider? backgroundImage;
+          if (store.logoUrl != null && store.logoUrl!.isNotEmpty) {
+            if (store.logoUrl!.startsWith('http')) {
+              backgroundImage = NetworkImage(store.logoUrl!);
+            } else {
+              backgroundImage = AssetImage(store.logoUrl!);
+            }
+          }
+
           return Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: ListTile(
               leading: CircleAvatar(
-                backgroundImage: store.logoUrl != null
-                    ? NetworkImage(store.logoUrl!)
-                    : null,
-                child: store.logoUrl == null
-                    ? const Icon(Icons.store)
-                    : null,
+                backgroundImage: backgroundImage,
+                child: backgroundImage == null ? const Icon(Icons.store) : null,
               ),
-              title: Text(store.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+              title: Text(
+                store.name,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
               subtitle: Text(store.address),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,

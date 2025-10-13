@@ -214,6 +214,17 @@ class _ReorderableRowState extends State<_ReorderableRow>
     super.dispose();
   }
 
+  void _handleRemove() {
+    // Chạy animation biến mất.
+    _animationController.reverse().whenComplete(() {
+      // Chỉ sau khi animation hoàn tất, mới thực sự xóa item khỏi service.
+      // Điều này đảm bảo widget không bị loại bỏ khỏi cây trước khi animation kết thúc.
+      if (mounted) {
+        context.read<TemporaryOrderService>().removeItem(widget.itemId);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // TỐI ƯU: Sử dụng Selector để chỉ rebuild widget này khi CartItem tương ứng thay đổi.
@@ -221,18 +232,14 @@ class _ReorderableRowState extends State<_ReorderableRow>
       (service) => service.findItemInActiveOrder(widget.itemId),
     );
 
-    // Nếu item đã bị xóa khỏi service, chạy animation biến mất
+    // Nếu item không còn (ví dụ: do xóa từ nơi khác), widget sẽ tự động biến mất.
     if (item == null) {
-      _animationController.reverse();
       // Trả về một widget trống trong khi animation chạy
       return SizeTransition(
         sizeFactor: _animation,
         child: const SizedBox.shrink(),
       );
     }
-
-    // Lấy các service và settings cần thiết. `read` không gây rebuild.
-    // final orderService = context.read<TemporaryOrderService>();
 
     final rowContent = MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -248,6 +255,7 @@ class _ReorderableRowState extends State<_ReorderableRow>
           item: item,
           index: widget.index,
           isHovered: _isHovered,
+          onRemove: _handleRemove, // Truyền callback xuống
         ),
       ),
     );
@@ -264,11 +272,13 @@ class _CartItemRowContent extends StatelessWidget {
   final CartItem item;
   final int index;
   final bool isHovered;
+  final VoidCallback onRemove; // Nhận callback
 
   const _CartItemRowContent({
     required this.item,
     required this.index,
     required this.isHovered,
+    required this.onRemove,
   });
 
   @override
@@ -298,12 +308,14 @@ class _CartItemRowContent extends StatelessWidget {
               index: index,
               orderService: orderService,
               isHovered: isHovered,
+              onRemove: onRemove,
             ),
           ),
         ],
       ),
     );
   }
+
   /// Builds the list of cells for a data row.
   /// This is a modified copy from the parent state.
   List<Widget> _buildCells({
@@ -313,6 +325,7 @@ class _CartItemRowContent extends StatelessWidget {
     required int index,
     required TemporaryOrderService orderService,
     bool isHovered = false,
+    required VoidCallback onRemove,
   }) {
     final List<Widget> cells = [];
 
@@ -525,18 +538,7 @@ class _CartItemRowContent extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.delete_outline, color: Colors.red),
             tooltip: 'Xóa sản phẩm',
-            onPressed: () {
-              // Chạy animation trước khi thực sự xóa item
-              // Cần tìm cách truy cập _animationController từ _ReorderableRowState
-              // hoặc truyền callback xuống. Hiện tại, tạm thời gọi trực tiếp.
-              // TODO: Cải thiện animation xóa.
-              final tempContext =
-                  (this as Element); // Lấy context của _CartItemRowContent
-              Provider.of<TemporaryOrderService>(
-                tempContext,
-                listen: false,
-              ).removeItem(item.id);
-            },
+            onPressed: onRemove, // Sử dụng callback đã được truyền xuống
           ),
         ],
       ),

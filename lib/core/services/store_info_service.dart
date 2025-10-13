@@ -80,4 +80,9 @@ class StoreInfoService with ChangeNotifier {
       rethrow;
     }
   }
+
+  /// Forces the service to notify its listeners, causing UI to rebuild.
+  void forceReload() {
+    notifyListeners();
+  }
 }

@@ -7,6 +7,31 @@ import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:printing/printing.dart';
 
 class ReceiptPrinterService {
+  // --- Tối ưu hóa: Cache font và logo ---
+  pw.ThemeData? _theme;
+  final Map<String, pw.ImageProvider> _logoCache = {};
+
+  /// Initializes the service by pre-loading fonts.
+  /// This should be called once when the app starts.
+  Future<void> init() async {
+    if (_theme != null) return; // Already initialized
+
+    // Tải tất cả các font song song
+    final fontData = await Future.wait([
+      rootBundle.load("assets/fonts/NotoSans-Regular.ttf"),
+      rootBundle.load("assets/fonts/NotoSans-Bold.ttf"),
+      rootBundle.load("assets/fonts/NotoSans-Italic.ttf"),
+      rootBundle.load("assets/fonts/NotoSans-BoldItalic.ttf"),
+    ]);
+
+    _theme = pw.ThemeData.withFont(
+      base: pw.Font.ttf(fontData[0]),
+      bold: pw.Font.ttf(fontData[1]),
+      italic: pw.Font.ttf(fontData[2]),
+      boldItalic: pw.Font.ttf(fontData[3]),
+    );
+  }
+
   final currencyFormat = NumberFormat.currency(locale: 'vi_VN', symbol: '₫');
 
   /// Hàm này giờ chỉ là một lối tắt để in nhanh với các giá trị mặc định
@@ -29,31 +54,11 @@ class ReceiptPrinterService {
     String title = 'HÓA ĐƠN BÁN HÀNG',
     PdfPageFormat? pageFormat,
   }) async {
+    // Đảm bảo font đã được tải
+    if (_theme == null) {
+      await init();
+    }
     final doc = pw.Document();
-
-    // Tải font hỗ trợ tiếng Việt
-    final fontData = await rootBundle.load("assets/fonts/NotoSans-Regular.ttf");
-    final boldFontData = await rootBundle.load(
-      "assets/fonts/NotoSans-Bold.ttf",
-    );
-    final italicFontData = await rootBundle.load(
-      "assets/fonts/NotoSans-Italic.ttf",
-    );
-    final boldItalicFontData = await rootBundle.load(
-      "assets/fonts/NotoSans-BoldItalic.ttf",
-    );
-
-    final ttf = pw.Font.ttf(fontData);
-    final boldTtf = pw.Font.ttf(boldFontData);
-    final italicTtf = pw.Font.ttf(italicFontData);
-    final boldItalicTtf = pw.Font.ttf(boldItalicFontData);
-
-    final theme = pw.ThemeData.withFont(
-      base: ttf,
-      bold: boldTtf,
-      italic: italicTtf,
-      boldItalic: boldItalicTtf,
-    );
 
     // Tải logo trước khi xây dựng trang
     final logoImage = await _loadLogo(storeInfo.logoUrl);
@@ -69,7 +74,7 @@ class ReceiptPrinterService {
               marginLeft: 1.5 * PdfPageFormat.cm,
               marginRight: 1.5 * PdfPageFormat.cm,
             ),
-        theme: theme,
+        theme: _theme,
         header: (context) => _buildHeader(logoImage, storeInfo, context),
         footer: (context) => _buildFooter(context),
         build: (pw.Context context) => [
@@ -90,17 +95,25 @@ class ReceiptPrinterService {
   }
 
   Future<pw.ImageProvider?> _loadLogo(String? logoUrl) async {
+    final String cacheKey = logoUrl ?? 'default_logo';
+
+    // 1. Kiểm tra cache trước
+    if (_logoCache.containsKey(cacheKey)) {
+      return _logoCache[cacheKey];
+    }
+
+    // 2. Nếu không có trong cache, tải và lưu vào cache
     try {
+      pw.ImageProvider? imageProvider;
       if (logoUrl != null && logoUrl.isNotEmpty) {
-        // Nếu có URL, tải từ mạng
-        return await networkImage(logoUrl);
+        imageProvider = await networkImage(logoUrl);
+      } else {
+        final byteData = await rootBundle.load('assets/images/logo.png');
+        imageProvider = pw.MemoryImage(byteData.buffer.asUint8List());
       }
-      // Nếu không, tải từ asset local
-      return pw.MemoryImage(
-        (await rootBundle.load('assets/images/logo.png')).buffer.asUint8List(),
-      );
+      _logoCache[cacheKey] = imageProvider;
+      return imageProvider;
     } catch (e) {
-      // Bỏ qua lỗi nếu không tìm thấy logo
       print('Could not load logo: $e');
       return null;
     }

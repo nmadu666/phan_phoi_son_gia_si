@@ -11,11 +11,12 @@ class StoreInfo extends Equatable {
 
   const StoreInfo({
     required this.id,
-    this.name = 'Phân Phối Sơn Giá Sỉ',
-    this.address = 'Thửa đất số 2599,Tờ bản đồ 11,Đường DE1,Khu phố 1, Phường Thới Hòa, Thị xã Bến Cát, Tỉnh Bình Dương, Việt Nam',
+    this.name = 'CÔNG TY TNHH PHÂN PHỐI SƠN GIÁ SỈ',
+    this.address =
+        'Thửa đất số 2599,Tờ bản đồ 11,Đường DE1,Khu phố 1, Phường Thới Hòa, Thị xã Bến Cát, Tỉnh Bình Dương, Việt Nam',
     this.hotline = '02835350330',
-    this.email = 'contact@phanphoison.com',
-    this.logoUrl,
+    this.email = 'admin@phanphoisongiasi.com',
+    this.logoUrl = 'assets/images/logo.png',
   });
 
   factory StoreInfo.fromFirestore(

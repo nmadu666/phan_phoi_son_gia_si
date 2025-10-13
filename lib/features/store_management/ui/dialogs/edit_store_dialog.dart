@@ -72,7 +72,8 @@ class _EditStoreDialogState extends State<EditStoreDialog> {
         } else {
           await service.updateStore(widget.store!.id, data);
         }
-        if (mounted) Navigator.of(context).pop();
+        // Đóng dialog và trả về `true` để báo hiệu đã lưu thành công
+        if (mounted) Navigator.of(context).pop(true);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(

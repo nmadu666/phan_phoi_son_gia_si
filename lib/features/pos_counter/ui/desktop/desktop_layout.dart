@@ -144,30 +144,10 @@ class _DeliverySaleView extends StatelessWidget {
         Expanded(
           flex: 5, // Represents ~45% of the width
           child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 1. The list of items in the cart.
-                const Expanded(child: CartItemsList()),
-                const SizedBox(height: 8),
-                // 2. Description and Checkout are now in a Row
-                const Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(flex: 2, child: _OrderDescriptionField()),
-                    SizedBox(width: 8),
-                    Expanded(
-                      flex: 1,
-                      child: SizedBox(
-                        height: 120,
-                        child: Placeholder(child: Center(child: Text('Checkout'))),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
+            padding: const EdgeInsets.all(
+              8.0,
+            ), // Sử dụng OrderPanel đã được tái cấu trúc
+            child: const _OrderPanel(),
           ),
         ),
         const VerticalDivider(width: 1),
@@ -223,16 +203,10 @@ class _NormalSaleView extends StatelessWidget {
         Expanded(
           flex: 6, // Represents ~60% of the width
           child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                // 1. The list of items in the cart.
-                Expanded(child: CartItemsList()),
-                SizedBox(height: 8),
-                _OrderDescriptionField(),
-              ],
-            ),
+            padding: const EdgeInsets.all(
+              8.0,
+            ), // Sử dụng OrderPanel đã được tái cấu trúc
+            child: const _OrderPanel(),
           ),
         ),
         const VerticalDivider(width: 1),
@@ -278,19 +252,10 @@ class _QuickSaleView extends StatelessWidget {
         Expanded(
           flex: 7, // Represents ~70% of the width
           child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                // This area represents the OrderPanel.
-                // It's split into the item list and a description box at the bottom.
-
-                // 1. The list of items in the cart.
-                Expanded(child: CartItemsList()),
-
-                SizedBox(height: 8), _OrderDescriptionField(),
-              ],
-            ),
+            padding: const EdgeInsets.all(
+              8.0,
+            ), // Sử dụng OrderPanel đã được tái cấu trúc
+            child: const _OrderPanel(),
           ),
         ),
         const VerticalDivider(width: 1),
@@ -300,9 +265,29 @@ class _QuickSaleView extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(8.0),
             // Placeholder for Customer Info and Checkout/Payment Panel
-            child: CustomerCheckoutPanel(),
+            child: const CustomerCheckoutPanel(),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// A reusable widget that encapsulates the cart items list and the order description field.
+/// This helps to avoid code duplication across different sale views.
+class _OrderPanel extends StatelessWidget {
+  const _OrderPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: const [
+        // 1. The list of items in the cart.
+        Expanded(child: CartItemsList()),
+        SizedBox(height: 8),
+        // 2. The description field for the order.
+        _OrderDescriptionField(),
       ],
     );
   }
@@ -334,9 +319,13 @@ class _OrderDescriptionFieldState extends State<_OrderDescriptionField> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     // Update the controller's text when the active order's description changes.
-    // This handles cases like switching between temporary orders.
-    final description =
-        context.watch<TemporaryOrderService>().activeOrder?.description ?? '';
+    // TỐI ƯU: Sử dụng `context.select` thay vì `context.watch`.
+    // Widget này sẽ chỉ rebuild khi giá trị của `description` thay đổi,
+    // tránh việc rebuild không cần thiết khi các phần khác của order thay đổi
+    // (ví dụ: thêm/xóa sản phẩm).
+    final description = context.select<TemporaryOrderService, String>(
+      (service) => service.activeOrder?.description ?? '',
+    );
     if (_controller.text != description) {
       _controller.text = description;
     }
@@ -350,9 +339,9 @@ class _OrderDescriptionFieldState extends State<_OrderDescriptionField> {
     _debounce = Timer(const Duration(milliseconds: 500), () {
       // Check if the widget is still in the tree before calling the service.
       if (mounted) {
-        context
-            .read<TemporaryOrderService>()
-            .updateOrderDescription(_controller.text);
+        context.read<TemporaryOrderService>().updateOrderDescription(
+          _controller.text,
+        );
       }
     });
   }

@@ -1,17 +1,11 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:phan_phoi_son_gia_si/core/services/store_info_service.dart';
 import 'package:phan_phoi_son_gia_si/core/utils/receipt_printer_service.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
-import 'package:phan_phoi_son_gia_si/core/models/kiotviet_sale_channel.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';
-import 'package:phan_phoi_son_gia_si/core/models/kiotviet_price_book.dart';
-import 'package:phan_phoi_son_gia_si/core/services/kiotviet_price_book_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_user.dart';
-import 'package:phan_phoi_son_gia_si/core/services/kiotviet_sale_channel_service.dart';
-import 'package:phan_phoi_son_gia_si/core/services/kiotviet_user_service.dart';
 import 'package:provider/provider.dart';
 import 'package:phan_phoi_son_gia_si/core/models/kiotviet_customer.dart';
 import 'package:phan_phoi_son_gia_si/core/services/kiotviet_customer_service.dart';
@@ -20,8 +14,10 @@ import 'package:intl/intl.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/dialogs/create_customer_dialog.dart';
 import 'package:phan_phoi_son_gia_si/features/pos_counter/ui/print_preview_screen.dart';
 
+import '../../../../core/models/kiotviet_sale_channel.dart';
 import '../../../../core/models/temporary_order.dart';
 import '../../../../core/services/app_state_service.dart';
+import '../../../../core/services/kiotviet_data_cache_service.dart';
 import '../../../../core/utils/icon_mapper.dart';
 import '../../../../core/services/auth_service.dart';
 
@@ -33,24 +29,13 @@ class CustomerCheckoutPanel extends StatefulWidget {
 }
 
 class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
-  final KiotVietUserService _userService = KiotVietUserService();
   final KiotVietCustomerService _customerService = KiotVietCustomerService();
-  final KiotVietSaleChannelService _saleChannelService =
-      KiotVietSaleChannelService();
-  final KiotVietPriceBookService _priceBookService = KiotVietPriceBookService();
-  final ReceiptPrinterService _printerService = ReceiptPrinterService();
 
-  late Future<List<KiotVietUser>> _usersFuture;
-  late Future<List<KiotVietSaleChannel>> _saleChannelsFuture;
-  late Future<List<KiotVietPriceBook>> _priceBooksFuture;
   DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
     super.initState();
-    _usersFuture = _userService.getUsers();
-    _saleChannelsFuture = _saleChannelService.getSaleChannels();
-    _priceBooksFuture = _priceBookService.getPriceBooks();
     _setDefaultSeller();
   }
 
@@ -269,229 +254,197 @@ class _CustomerCheckoutPanelState extends State<CustomerCheckoutPanel> {
   }
 
   Widget _buildSellerDropdown(KiotVietUser? selectedSeller) {
-    return FutureBuilder<List<KiotVietUser>>(
-      future: _usersFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const InputDecorator(
-            decoration: InputDecoration(
-              labelText: 'Nhân viên',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.fromLTRB(12, 0, 12, 0),
-            ),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          );
-        }
-        if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
-          return const InputDecorator(
-            decoration: InputDecoration(
-              labelText: 'Nhân viên bán hàng',
-              border: OutlineInputBorder(),
-            ),
-            child: Text('Lỗi tải nhân viên'),
-          );
-        }
+    // Lấy dữ liệu từ cache service
+    final cacheService = context.watch<KiotVietDataCacheService>();
+    final users = cacheService.users;
 
-        final users = snapshot.data!;
-        return DropdownButtonFormField<int>(
-          initialValue: selectedSeller?.id,
-          decoration: const InputDecoration(
-            labelText: 'Nhân viên',
-            border: OutlineInputBorder(),
-            contentPadding: EdgeInsets.symmetric(horizontal: 12),
+    if (users == null) {
+      return const InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Nhân viên',
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.fromLTRB(12, 0, 12, 0),
+        ),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            height: 20,
+            width: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          items: users.map((user) {
-            return DropdownMenuItem<int>(
-              value: user.id,
-              child: Text(user.givenName),
-            );
-          }).toList(),
-          onChanged: (userId) {
-            final KiotVietUser? seller = (userId == null)
-                ? null
-                : users.firstWhere((u) => u.id == userId);
+        ),
+      );
+    }
 
-            context.read<TemporaryOrderService>().setSellerForActiveOrder(
-              seller,
-            );
-          },
+    if (users.isEmpty) {
+      return const InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Nhân viên bán hàng',
+          border: OutlineInputBorder(),
+        ),
+        child: Text('Lỗi tải nhân viên'),
+      );
+    }
+    return DropdownButtonFormField<int>(
+      initialValue: selectedSeller?.id,
+      decoration: const InputDecoration(
+        labelText: 'Nhân viên',
+        border: OutlineInputBorder(),
+        contentPadding: EdgeInsets.symmetric(horizontal: 12),
+      ),
+      items: users.map((user) {
+        return DropdownMenuItem<int>(
+          value: user.id,
+          child: Text(user.givenName),
         );
+      }).toList(),
+      onChanged: (userId) {
+        final KiotVietUser? seller = (userId == null)
+            ? null
+            : users.firstWhere((u) => u.id == userId);
+
+        context.read<TemporaryOrderService>().setSellerForActiveOrder(seller);
       },
     );
   }
 
   Widget _buildSaleChannelDropdown(KiotVietSaleChannel? selectedChannel) {
-    return FutureBuilder<List<KiotVietSaleChannel>>(
-      future: _saleChannelsFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const InputDecorator(
-            decoration: InputDecoration(
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 16,
-              ),
-            ),
-            child: Center(
-              child: SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          );
-        }
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const InputDecorator(
-            decoration: InputDecoration(border: OutlineInputBorder()),
-            child: Icon(Icons.storefront, color: Colors.grey),
-          );
-        }
+    final cacheService = context.watch<KiotVietDataCacheService>();
+    final channels = cacheService.saleChannels;
 
-        final channels = snapshot.data!;
-        final defaultChannel =
-            selectedChannel ??
-            channels.firstWhere(
-              (c) => c.name.contains('Tại cửa hàng'),
-              orElse: () => channels.first,
-            );
-        return DropdownButtonFormField<int>(
-          initialValue: defaultChannel.id,
-          decoration: const InputDecoration(
-            border: OutlineInputBorder(),
-            contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    if (channels == null) {
+      return const InputDecorator(
+        decoration: InputDecoration(
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+        ),
+        child: Center(
+          child: SizedBox(
+            height: 20,
+            width: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          // Hide the label text when an item is selected
-          selectedItemBuilder: (context) {
-            return channels.map<Widget>((channel) {
-              return Center(
-                child: FaIcon(getIconFromKiotVietString(channel.img), size: 20),
-              );
-            }).toList();
-          },
-          items: channels.map((channel) {
-            return DropdownMenuItem<int>(
-              value: channel.id,
-              child: Row(
-                children: [
-                  FaIcon(
-                    getIconFromKiotVietString(channel.img),
-                    size: 20,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  // Use Expanded to allow the text to wrap or show an ellipsis
-                  // if the channel name is too long for the dropdown item.
-                  Expanded(
-                    child: Text(channel.name, overflow: TextOverflow.ellipsis),
-                  ),
-                ],
-              ),
-            );
-          }).toList(),
-          onChanged: (channelId) {
-            if (channelId != null) {
-              final channel = channels.firstWhere((c) => c.id == channelId);
-              context
-                  .read<TemporaryOrderService>()
-                  .setSaleChannelForActiveOrder(channel);
-            }
-          },
+        ),
+      );
+    }
+
+    if (channels.isEmpty) {
+      return const InputDecorator(
+        decoration: InputDecoration(border: OutlineInputBorder()),
+        child: Icon(Icons.storefront, color: Colors.grey),
+      );
+    }
+    final defaultChannel =
+        selectedChannel ??
+        channels.firstWhere(
+          (c) => c.name.contains('Tại cửa hàng'),
+          orElse: () => channels.first,
         );
+    return DropdownButtonFormField<int>(
+      initialValue: defaultChannel.id,
+      decoration: const InputDecoration(
+        border: OutlineInputBorder(),
+        contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      ),
+      // Hide the label text when an item is selected
+      selectedItemBuilder: (context) {
+        return channels.map<Widget>((channel) {
+          return Center(
+            child: FaIcon(getIconFromKiotVietString(channel.img), size: 20),
+          );
+        }).toList();
+      },
+      items: channels.map((channel) {
+        return DropdownMenuItem<int>(
+          value: channel.id,
+          child: Row(
+            children: [
+              FaIcon(
+                getIconFromKiotVietString(channel.img),
+                size: 20,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              // Use Expanded to allow the text to wrap or show an ellipsis
+              // if the channel name is too long for the dropdown item.
+              Expanded(
+                child: Text(channel.name, overflow: TextOverflow.ellipsis),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+      onChanged: (channelId) {
+        if (channelId != null) {
+          final channel = channels.firstWhere((c) => c.id == channelId);
+          context.read<TemporaryOrderService>().setSaleChannelForActiveOrder(
+            channel,
+          );
+        }
       },
     );
   }
 
   Widget _buildPriceListDropdown(int? selectedPriceBookId) {
-    return FutureBuilder<List<KiotVietPriceBook>>(
-      future: _priceBooksFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const InputDecorator(
-            decoration: InputDecoration(
-              labelText: 'Bảng giá',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12),
-            ),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: SizedBox(
-                height: 20,
-                width: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-          );
-        }
-        if (snapshot.hasError || !snapshot.hasData) {
-          return const Text('Lỗi tải bảng giá');
-        }
+    final cacheService = context.watch<KiotVietDataCacheService>();
+    final priceBooks = cacheService.priceBooks;
 
-        final priceBooks = List<KiotVietPriceBook>.from(snapshot.data ?? []);
-
-        // Ensure "Bảng giá chung" (id: 0) always exists in the list.
-        if (!priceBooks.any((pb) => pb.id == 0)) {
-          priceBooks.insert(
-            0,
-            const KiotVietPriceBook(
-              id: 0,
-              name: 'Bảng giá chung',
-              isActive: true, // Assume it's always usable
-              isGlobal: true,
-            ),
-          );
-        }
-
-        if (priceBooks.isEmpty) {
-          return const InputDecorator(
-            decoration: InputDecoration(
-              labelText: 'Bảng giá',
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12),
-            ),
-            child: Text('Không có bảng giá'),
-          );
-        }
-
-        // Determine the initial value, ensuring it exists in the list.
-        int? initialValue = selectedPriceBookId;
-        final bool valueExists = priceBooks.any((pb) => pb.id == initialValue);
-
-        if (initialValue == null || !valueExists) {
-          // Default to general price book (id: 0) if available, otherwise the first item.
-          initialValue = priceBooks.any((pb) => pb.id == 0)
-              ? 0
-              : priceBooks.first.id;
-        }
-
-        return DropdownButtonFormField<int>(
-          isExpanded: true, // Tránh lỗi overflow khi tên bảng giá quá dài
-          initialValue: initialValue,
-          decoration: const InputDecoration(
-            labelText: 'Bảng giá',
-            border: OutlineInputBorder(),
-            contentPadding: EdgeInsets.symmetric(horizontal: 12),
+    if (priceBooks == null) {
+      return const InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Bảng giá',
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12),
+        ),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            height: 20,
+            width: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
           ),
-          items: priceBooks.map((pb) {
-            return DropdownMenuItem(
-              value: pb.id,
-              child: Text(pb.name, overflow: TextOverflow.ellipsis),
-            );
-          }).toList(),
-          onChanged: (value) {
-            context.read<TemporaryOrderService>().setPriceBookForActiveOrder(
-              value,
-            );
-          },
+        ),
+      );
+    }
+
+    if (priceBooks.isEmpty) {
+      return const InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Bảng giá',
+          border: OutlineInputBorder(),
+          contentPadding: EdgeInsets.symmetric(horizontal: 12),
+        ),
+        child: Text('Không có bảng giá'),
+      );
+    }
+
+    // Determine the initial value, ensuring it exists in the list.
+    int? initialValue = selectedPriceBookId;
+    final bool valueExists = priceBooks.any((pb) => pb.id == initialValue);
+
+    if (initialValue == null || !valueExists) {
+      // Default to general price book (id: 0) if available, otherwise the first item.
+      initialValue = priceBooks.any((pb) => pb.id == 0)
+          ? 0
+          : priceBooks.first.id;
+    }
+
+    return DropdownButtonFormField<int>(
+      isExpanded: true, // Tránh lỗi overflow khi tên bảng giá quá dài
+      initialValue: initialValue,
+      decoration: const InputDecoration(
+        labelText: 'Bảng giá',
+        border: OutlineInputBorder(),
+        contentPadding: EdgeInsets.symmetric(horizontal: 12),
+      ),
+      items: priceBooks.map((pb) {
+        return DropdownMenuItem(
+          value: pb.id,
+          child: Text(pb.name, overflow: TextOverflow.ellipsis),
         );
+      }).toList(),
+      onChanged: (value) {
+        context.read<TemporaryOrderService>().setPriceBookForActiveOrder(value);
       },
     );
   }

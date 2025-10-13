@@ -7,9 +7,11 @@ class AuthService with ChangeNotifier {
   final AppUserService _appUserService;
 
   // Constructor để có thể inject dependency, hữu ích cho việc test
-  AuthService({FirebaseAuth? firebaseAuth})
-    : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
-      _appUserService = AppUserService() {
+  AuthService({
+    FirebaseAuth? firebaseAuth,
+    required AppUserService appUserService,
+  }) : _firebaseAuth = firebaseAuth ?? FirebaseAuth.instance,
+       _appUserService = appUserService {
     // Sử dụng Future.microtask để đảm bảo việc đăng nhập tự động được thực thi
     // một cách an toàn ngay sau khi service được khởi tạo, thay vì gọi
     // trực tiếp một hàm async trong constructor.
