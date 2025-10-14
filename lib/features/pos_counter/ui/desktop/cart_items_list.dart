@@ -252,7 +252,7 @@ class _ReorderableRowState extends State<_ReorderableRow>
           ),
         ),
         child: _CartItemRowContent(
-          item: item,
+          itemId: widget.itemId,
           index: widget.index,
           isHovered: _isHovered,
           onRemove: _handleRemove, // Truyền callback xuống
@@ -269,13 +269,13 @@ class _ReorderableRowState extends State<_ReorderableRow>
 /// Nó được tách ra để có thể `watch` sự thay đổi của `PosSettingsService`
 /// mà không gây rebuild cho widget cha `_ReorderableRowState` một cách không cần thiết.
 class _CartItemRowContent extends StatelessWidget {
-  final CartItem item;
+  final String itemId;
   final int index;
   final bool isHovered;
   final VoidCallback onRemove; // Nhận callback
 
   const _CartItemRowContent({
-    required this.item,
+    required this.itemId,
     required this.index,
     required this.isHovered,
     required this.onRemove,
@@ -283,8 +283,16 @@ class _CartItemRowContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // TỐI ƯU: Lấy item trực tiếp từ service bằng `select`.
+    // Widget này sẽ chỉ rebuild khi item tương ứng thay đổi.
+    final item = context.select<TemporaryOrderService, CartItem?>(
+      (service) => service.findItemInActiveOrder(itemId),
+    );
     final settings = context.watch<PosSettingsService>().settings;
     final orderService = context.read<TemporaryOrderService>();
+
+    // Nếu item không còn tồn tại (đã bị xóa), không cần render gì cả.
+    if (item == null) return const SizedBox.shrink();
 
     return GestureDetector(
       onDoubleTap: () {

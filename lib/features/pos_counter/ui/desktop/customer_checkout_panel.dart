@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:phan_phoi_son_gia_si/core/utils/receipt_printer_service.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:phan_phoi_son_gia_si/core/services/app_user_service.dart';

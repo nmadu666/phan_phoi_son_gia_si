@@ -20,15 +20,17 @@ class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Phân Phối Sơn Giá Sỉ',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
-      home: AppServicesProvider(
-        // Bọc AuthGate bằng AppServicesProvider
-        child: const AuthGate(),
+    // Bọc MaterialApp bằng AppServicesProvider để các service có thể được truy cập
+    // từ bất kỳ đâu trong ứng dụng, bao gồm cả các dialog và route mới.
+    return AppServicesProvider(
+      child: MaterialApp(
+        title: 'Phân Phối Sơn Giá Sỉ',
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+          useMaterial3: true,
+        ),
+        // AuthGate giờ là home của MaterialApp
+        home: const AuthGate(),
       ),
     );
   }

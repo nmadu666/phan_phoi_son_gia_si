@@ -287,7 +287,7 @@ class _OrderPanel extends StatelessWidget {
         Expanded(child: CartItemsList()),
         SizedBox(height: 8),
         // 2. The description field for the order.
-        _OrderDescriptionField(),
+        _OrderDescriptionField(maxLines: 3),
       ],
     );
   }
@@ -298,7 +298,7 @@ class _OrderPanel extends StatelessWidget {
 class _OrderDescriptionField extends StatefulWidget {
   final int maxLines;
 
-  const _OrderDescriptionField({this.maxLines = 3});
+  const _OrderDescriptionField({required this.maxLines});
 
   @override
   State<_OrderDescriptionField> createState() => _OrderDescriptionFieldState();
@@ -316,21 +316,6 @@ class _OrderDescriptionFieldState extends State<_OrderDescriptionField> {
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Update the controller's text when the active order's description changes.
-    // TỐI ƯU: Sử dụng `context.select` thay vì `context.watch`.
-    // Widget này sẽ chỉ rebuild khi giá trị của `description` thay đổi,
-    // tránh việc rebuild không cần thiết khi các phần khác của order thay đổi
-    // (ví dụ: thêm/xóa sản phẩm).
-    final description = context.select<TemporaryOrderService, String>(
-      (service) => service.activeOrder?.description ?? '',
-    );
-    if (_controller.text != description) {
-      _controller.text = description;
-    }
-  }
-
   void _onTextChanged() {
     // Cancel any existing timer.
     if (_debounce?.isActive ?? false) _debounce!.cancel();
@@ -356,6 +341,19 @@ class _OrderDescriptionFieldState extends State<_OrderDescriptionField> {
 
   @override
   Widget build(BuildContext context) {
+    // TỐI ƯU: Sử dụng `context.select` thay vì `context.watch`.
+    // Widget này sẽ chỉ rebuild khi giá trị của `description` thay đổi,
+    // tránh việc rebuild không cần thiết khi các phần khác của order thay đổi
+    // (ví dụ: thêm/xóa sản phẩm).
+    final description = context.select<TemporaryOrderService, String>(
+      (service) => service.activeOrder?.description ?? '',
+    );
+
+    // Cập nhật controller nếu description từ service thay đổi (ví dụ: đổi tab đơn hàng).
+    if (_controller.text != description) {
+      _controller.text = description;
+    }
+
     return TextField(
       controller: _controller,
       decoration: const InputDecoration(

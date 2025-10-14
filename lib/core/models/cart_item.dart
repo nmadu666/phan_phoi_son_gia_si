@@ -18,7 +18,7 @@ class CartItem extends Equatable {
   final String? note;
   final double? overriddenLineTotal;
 
-  CartItem({
+  const CartItem({
     required this.productId,
     required this.id,
     required this.productFullName,
