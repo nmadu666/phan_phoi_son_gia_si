@@ -6,6 +6,7 @@ import 'package:phan_phoi_son_gia_si/core/models/store_info.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:printing/printing.dart';
 import 'package:phan_phoi_son_gia_si/core/utils/firebase_image.dart';
+
 class ReceiptPrinterService {
   // --- Tối ưu hóa: Cache font và logo ---
   pw.ThemeData? _theme;
@@ -24,7 +25,7 @@ class ReceiptPrinterService {
       rootBundle.load("assets/fonts/NotoSans-Italic.ttf"),
       rootBundle.load("assets/fonts/NotoSans-BoldItalic.ttf"),
       // TỐI ƯU: Tải font fallback để hiển thị các ký tự đặc biệt
-      rootBundle.load("assets/fonts/NotoSans-Regular.ttf"),
+      rootBundle.load("assets/fonts/NotoSansSymbols2-Regular.ttf"),
     ]);
 
     _fallbackFont = pw.Font.ttf(fontData[4]);
@@ -58,6 +59,7 @@ class ReceiptPrinterService {
     StoreInfo storeInfo, {
     String title = 'HÓA ĐƠN BÁN HÀNG',
     PdfPageFormat? pageFormat,
+    double scaleFactor = 1.0,
   }) async {
     // Đảm bảo font đã được tải
     if (_theme == null) {
@@ -81,18 +83,28 @@ class ReceiptPrinterService {
             ),
         theme: _theme,
         header: (context) => _buildHeader(logoImage, storeInfo, context),
-        footer: (context) => _buildFooter(context),
-        build: (pw.Context context) => [
-          _buildTitle(order, title),
-          pw.SizedBox(height: 0.8 * PdfPageFormat.cm),
-          _buildCustomerInfo(order),
-          pw.SizedBox(height: 1 * PdfPageFormat.cm),
-          _buildItemsTable(order),
-          pw.Divider(),
-          _buildSummary(order),
-          pw.SizedBox(height: 2 * PdfPageFormat.cm),
-          _buildSignature(),
-        ],
+        // footer: (context) => _buildFooter(context), // TỐI ƯU: Loại bỏ footer theo yêu cầu
+        build: (pw.Context context) {
+          final content = pw.Column(
+            children: [
+              _buildTitle(order, title),
+              pw.SizedBox(height: 0.8 * PdfPageFormat.cm),
+              _buildCustomerInfo(order),
+              pw.SizedBox(height: 1 * PdfPageFormat.cm),
+              _buildItemsTable(order),
+              pw.Divider(),
+              _buildSummary(order),
+              pw.SizedBox(height: 2 * PdfPageFormat.cm),
+              _buildSignature(),
+            ],
+          );
+          // Áp dụng tỷ lệ nếu nó khác 1.0
+          return [
+            scaleFactor == 1.0
+                ? content
+                : pw.Transform.scale(scale: scaleFactor, child: content),
+          ];
+        },
       ),
     );
 
@@ -220,6 +232,7 @@ class ReceiptPrinterService {
   pw.Widget _buildItemsTable(TemporaryOrder order) {
     final headers = [
       'STT',
+      'Mã hàng',
       'Tên hàng hóa',
       'ĐVT',
       'SL',
@@ -233,6 +246,7 @@ class ReceiptPrinterService {
       final item = entry.value;
       return [
         index.toString(),
+        item.productCode,
         item.productFullName,
         item.unit,
         item.quantity.toStringAsFixed(0),
@@ -250,12 +264,13 @@ class ReceiptPrinterService {
       cellHeight: 30,
       cellPadding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       columnWidths: {
-        0: const pw.IntrinsicColumnWidth(flex: 0.5), // STT
-        1: const pw.FlexColumnWidth(4), // Tên hàng
-        2: const pw.IntrinsicColumnWidth(flex: 0.8), // ĐVT
-        3: const pw.IntrinsicColumnWidth(flex: 0.8), // SL
-        4: const pw.FlexColumnWidth(1.5), // Đơn giá
-        5: const pw.FlexColumnWidth(1.5), // Thành tiền
+        0: const pw.IntrinsicColumnWidth(flex: 0.4), // STT
+        1: const pw.FlexColumnWidth(1.2), // Mã hàng
+        2: const pw.FlexColumnWidth(2.5), // Tên hàng
+        3: const pw.IntrinsicColumnWidth(flex: 0.5), // ĐVT
+        4: const pw.IntrinsicColumnWidth(flex: 0.5), // SL
+        5: const pw.FlexColumnWidth(1), // Đơn giá
+        6: const pw.FlexColumnWidth(1.2), // Thành tiền
       },
     );
   }
@@ -326,7 +341,7 @@ class ReceiptPrinterService {
     );
   }
 
-  pw.Widget _buildFooter(pw.Context context) {
+  /* pw.Widget _buildFooter(pw.Context context) {
     return pw.Column(
       mainAxisSize: pw.MainAxisSize.min,
       children: [
@@ -353,7 +368,7 @@ class ReceiptPrinterService {
       ],
     );
   }
-
+ */
   pw.Widget _buildSignature() {
     return pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.spaceAround,

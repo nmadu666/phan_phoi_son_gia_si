@@ -100,9 +100,10 @@ flutter:
         - asset: assets/fonts/NotoSans-BoldItalic.ttf
           style: italic
           weight: 700
-    - family: DejaVuSans
+    - family: NotoSansSymbols2
       fonts:
-        - asset: assets/fonts/DejaVuSans.ttf
+        # SỬA LỖI: Khôi phục đường dẫn đầy đủ để khắc phục lỗi build.
+        - asset: assets/fonts/NotoSansSymbols2-Regular.ttf
 
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package

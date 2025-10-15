@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:phan_phoi_son_gia_si/core/models/store_info.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
@@ -18,11 +17,31 @@ class PrintPreviewScreen extends StatefulWidget {
   State<PrintPreviewScreen> createState() => _PrintPreviewScreenState();
 }
 
+/// Enum cho các tùy chọn canh lề đặt trước
+enum MarginPreset {
+  normal('Mặc định', 15.0),
+  minimal('Tối thiểu', 5.0),
+  none('Không lề', 0.0),
+  custom('Tùy chỉnh', -1);
+
+  const MarginPreset(this.label, this.value);
+  final String label;
+  final double value; // in mm
+}
+
 class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
   late StoreInfo _selectedStore;
   late TextEditingController _titleController;
   // TÍNH NĂNG MỚI: State để quản lý khổ giấy được chọn
   late PdfPageFormat _selectedPageFormat;
+  // TÍNH NĂNG MỚI: Controllers cho việc canh lề
+  late TextEditingController _marginTopController;
+  late TextEditingController _marginBottomController;
+  late TextEditingController _marginLeftController;
+  late TextEditingController _marginRightController;
+  // TÍNH NĂNG MỚI: State cho tùy chọn lề và tỷ lệ
+  MarginPreset _selectedMarginPreset = MarginPreset.normal;
+  double _scaleFactor = 1.0;
 
   // Định nghĩa các khổ giấy có sẵn
   final Map<String, PdfPageFormat> _pageFormats = {
@@ -31,6 +50,12 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
     'Hóa đơn 80mm': PdfPageFormat(80 * PdfPageFormat.mm, double.infinity),
   };
 
+  // TÍNH NĂNG MỚI: Danh sách các mẫu tiêu đề hóa đơn
+  final List<String> _invoiceTitles = [
+    'HÓA ĐƠN BÁN HÀNG',
+    'BÁO GIÁ KHÁCH HÀNG',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -38,12 +63,45 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
     _selectedStore = storeService.defaultStore;
     _titleController = TextEditingController(text: 'HÓA ĐƠN BÁN HÀNG');
     _selectedPageFormat = _pageFormats['A4']!; // Mặc định là A4
+
+    // Khởi tạo giá trị mặc định cho lề (1.5 cm)
+    _marginTopController = TextEditingController(
+      text: MarginPreset.normal.value.toStringAsFixed(0),
+    );
+    _marginBottomController = TextEditingController(
+      text: MarginPreset.normal.value.toStringAsFixed(0),
+    );
+    _marginLeftController = TextEditingController(
+      text: MarginPreset.normal.value.toStringAsFixed(0),
+    );
+    _marginRightController = TextEditingController(
+      text: MarginPreset.normal.value.toStringAsFixed(0),
+    );
   }
 
   @override
   void dispose() {
     _titleController.dispose();
+    _marginTopController.dispose();
+    _marginBottomController.dispose();
+    _marginLeftController.dispose();
+    _marginRightController.dispose();
     super.dispose();
+  }
+
+  void _updateMarginControllers(MarginPreset preset) {
+    if (preset == MarginPreset.custom) {
+      // Không làm gì khi người dùng chọn Tùy chỉnh, giữ nguyên giá trị họ đã nhập
+      return;
+    }
+    final value = preset.value.toStringAsFixed(0);
+    setState(() {
+      _selectedMarginPreset = preset;
+      _marginTopController.text = value;
+      _marginBottomController.text = value;
+      _marginLeftController.text = value;
+      _marginRightController.text = value;
+    });
   }
 
   @override
@@ -122,16 +180,120 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
                   },
                 ),
                 const SizedBox(height: 16),
-                // TextField chỉnh sửa tiêu đề
-                TextField(
-                  controller: _titleController,
+                // TÍNH NĂNG MỚI: Autocomplete cho phép chọn hoặc nhập tiêu đề
+                Autocomplete<String>(
+                  initialValue: TextEditingValue(text: _titleController.text),
+                  optionsBuilder: (TextEditingValue textEditingValue) {
+                    if (textEditingValue.text.isEmpty) {
+                      return _invoiceTitles;
+                    }
+                    return _invoiceTitles.where((String option) {
+                      return option.contains(
+                        textEditingValue.text.toUpperCase(),
+                      );
+                    });
+                  },
+                  onSelected: (String selection) {
+                    setState(() {
+                      _titleController.text = selection;
+                    });
+                  },
+                  fieldViewBuilder:
+                      (
+                        context,
+                        textEditingController,
+                        focusNode,
+                        onFieldSubmitted,
+                      ) {
+                        // Đồng bộ controller của Autocomplete với _titleController
+                        _titleController.value = textEditingController.value;
+                        return TextFormField(
+                          controller: textEditingController,
+                          focusNode: focusNode,
+                          decoration: const InputDecoration(
+                            labelText: 'Tiêu đề hóa đơn',
+                            border: OutlineInputBorder(),
+                          ),
+                          inputFormatters: [UpperCaseTextFormatter()],
+                          onChanged: (value) => setState(() {}),
+                        );
+                      },
+                ),
+                const SizedBox(height: 24),
+                // TÍNH NĂNG MỚI: Dropdown chọn canh lề
+                DropdownButtonFormField<MarginPreset>(
+                  value: _selectedMarginPreset,
                   decoration: const InputDecoration(
-                    labelText: 'Tiêu đề hóa đơn',
+                    labelText: 'Canh lề',
                     border: OutlineInputBorder(),
                   ),
+                  items: MarginPreset.values.map((preset) {
+                    return DropdownMenuItem<MarginPreset>(
+                      value: preset,
+                      child: Text(preset.label),
+                    );
+                  }).toList(),
+                  onChanged: (MarginPreset? newValue) {
+                    if (newValue != null) {
+                      _updateMarginControllers(newValue);
+                    }
+                  },
+                ),
+                // TÍNH NĂNG MỚI: Hiển thị các ô nhập liệu khi chọn "Tùy chỉnh"
+                if (_selectedMarginPreset == MarginPreset.custom) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMarginTextField(
+                          _marginTopController,
+                          'Trên',
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildMarginTextField(
+                          _marginBottomController,
+                          'Dưới',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMarginTextField(
+                          _marginLeftController,
+                          'Trái',
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _buildMarginTextField(
+                          _marginRightController,
+                          'Phải',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 24),
+                // TÍNH NĂNG MỚI: Slider điều chỉnh tỷ lệ
+                Text(
+                  'Tỷ lệ: ${(_scaleFactor * 100).toStringAsFixed(0)}%',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                Slider(
+                  value: _scaleFactor,
+                  min: 0.5, // 50%
+                  max: 1.5, // 150%
+                  divisions: 20, // 20 steps for 100% range (5% per step)
+                  label: '${(_scaleFactor * 100).toStringAsFixed(0)}%',
                   onChanged: (value) {
-                    // Trigger rebuild của PdfPreview khi người dùng gõ
-                    setState(() {});
+                    setState(() {
+                      _scaleFactor = value;
+                    });
                   },
                 ),
               ],
@@ -142,7 +304,7 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
             child: PdfPreview(
               // Sử dụng key để buộc PdfPreview build lại khi state thay đổi
               key: ValueKey(
-                '${_selectedStore.id}_${_titleController.text}_${_selectedPageFormat.width}',
+                '${_selectedStore.id}_${_titleController.text}_${_selectedPageFormat.width}_${_marginTopController.text}_${_marginBottomController.text}_${_marginLeftController.text}_${_marginRightController.text}_$_scaleFactor',
               ),
               build: (format) => _generatePdf(_selectedPageFormat),
               canChangePageFormat:
@@ -158,14 +320,65 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
 
   /// Tạo file PDF dựa trên các tùy chọn hiện tại
   Future<Uint8List> _generatePdf(PdfPageFormat format) async {
+    // Lấy giá trị lề từ controllers, chuyển đổi sang double
+    final defaultMarginValue = MarginPreset.normal.value;
+    final marginTop =
+        (double.tryParse(_marginTopController.text) ?? defaultMarginValue) *
+        PdfPageFormat.mm;
+    final marginBottom =
+        (double.tryParse(_marginBottomController.text) ?? defaultMarginValue) *
+        PdfPageFormat.mm;
+    final marginLeft =
+        (double.tryParse(_marginLeftController.text) ?? defaultMarginValue) *
+        PdfPageFormat.mm;
+    final marginRight =
+        (double.tryParse(_marginRightController.text) ?? defaultMarginValue) *
+        PdfPageFormat.mm;
+
+    // Tạo khổ giấy mới với lề đã tùy chỉnh
+    final customFormat = format.copyWith(
+      marginTop: marginTop,
+      marginBottom: marginBottom,
+      marginLeft: marginLeft,
+      marginRight: marginRight,
+    );
+
     final printerService = context.read<ReceiptPrinterService>();
     final doc = await printerService.generatePdfDocument(
       widget.order,
       _selectedStore,
       title: _titleController.text,
-      pageFormat: format, // Truyền khổ giấy từ PdfPreview
+      scaleFactor: _scaleFactor,
+      pageFormat: customFormat, // Truyền khổ giấy đã tùy chỉnh
     );
     final bytes = await doc.save();
     return Uint8List.fromList(bytes);
+  }
+
+  Widget _buildMarginTextField(TextEditingController controller, String label) {
+    return TextField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: label,
+        border: const OutlineInputBorder(),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+      ),
+      keyboardType: TextInputType.number,
+      onChanged: (value) => setState(() {}), // Rebuild on change
+    );
+  }
+}
+
+/// Một formatter để tự động chuyển đổi văn bản nhập vào thành chữ in hoa.
+class UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    return TextEditingValue(
+      text: newValue.text.toUpperCase(),
+      selection: newValue.selection,
+    );
   }
 }
