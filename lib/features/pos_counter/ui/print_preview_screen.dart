@@ -21,14 +21,23 @@ class PrintPreviewScreen extends StatefulWidget {
 class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
   late StoreInfo _selectedStore;
   late TextEditingController _titleController;
+  // TÍNH NĂNG MỚI: State để quản lý khổ giấy được chọn
+  late PdfPageFormat _selectedPageFormat;
+
+  // Định nghĩa các khổ giấy có sẵn
+  final Map<String, PdfPageFormat> _pageFormats = {
+    'A4': PdfPageFormat.a4,
+    'A5': PdfPageFormat.a5,
+    'Hóa đơn 80mm': PdfPageFormat(80 * PdfPageFormat.mm, double.infinity),
+  };
 
   @override
   void initState() {
     super.initState();
     final storeService = context.read<StoreInfoService>();
-    // Lấy service từ context thay vì tạo mới
     _selectedStore = storeService.defaultStore;
     _titleController = TextEditingController(text: 'HÓA ĐƠN BÁN HÀNG');
+    _selectedPageFormat = _pageFormats['A4']!; // Mặc định là A4
   }
 
   @override
@@ -64,11 +73,11 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
                 const SizedBox(height: 24),
                 // Dropdown chọn cửa hàng
                 DropdownButtonFormField<StoreInfo>(
-                  // Đảm bảo giá trị value luôn tồn tại trong danh sách items
                   initialValue:
                       storeService.stores.any((s) => s.id == _selectedStore.id)
                       ? _selectedStore
                       : null,
+                  isExpanded: true, // Cho phép item trong dropdown mở rộng
                   decoration: const InputDecoration(
                     labelText: 'Chọn cửa hàng/công ty',
                     border: OutlineInputBorder(),
@@ -76,13 +85,38 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
                   items: storeService.stores.map((store) {
                     return DropdownMenuItem<StoreInfo>(
                       value: store,
-                      child: Text(store.name),
+                      // TỐI ƯU: Xử lý tên cửa hàng dài để tránh lỗi overflow
+                      child: Text(store.name, overflow: TextOverflow.ellipsis),
                     );
                   }).toList(),
                   onChanged: (StoreInfo? newValue) {
                     if (newValue != null) {
                       setState(() {
                         _selectedStore = newValue;
+                      });
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                // TÍNH NĂNG MỚI: Dropdown chọn khổ giấy
+                DropdownButtonFormField<PdfPageFormat>(
+                  initialValue: _selectedPageFormat,
+                  decoration: const InputDecoration(
+                    labelText: 'Chọn khổ giấy',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _pageFormats.entries.map((entry) {
+                    return DropdownMenuItem<PdfPageFormat>(
+                      value: entry.value,
+                      child: Text(entry.key),
+                    );
+                  }).toList(),
+                  onChanged: (PdfPageFormat? newValue) {
+                    if (newValue != null) {
+                      setState(() {
+                        _selectedPageFormat = newValue;
+                        // Việc thay đổi key của PdfPreview sẽ buộc nó build lại
+                        // với khổ giấy mới.
                       });
                     }
                   },
@@ -107,10 +141,13 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
           Expanded(
             child: PdfPreview(
               // Sử dụng key để buộc PdfPreview build lại khi state thay đổi
-              key: ValueKey('${_selectedStore.name}_${_titleController.text}'),
-              build: (format) => _generatePdf(format),
-              canChangePageFormat: true,
-              canChangeOrientation: true,
+              key: ValueKey(
+                '${_selectedStore.id}_${_titleController.text}_${_selectedPageFormat.width}',
+              ),
+              build: (format) => _generatePdf(_selectedPageFormat),
+              canChangePageFormat:
+                  false, // Tắt tùy chọn của thư viện, dùng của mình
+              canChangeOrientation: false, // Tắt tùy chọn của thư viện
               canDebug: false,
             ),
           ),

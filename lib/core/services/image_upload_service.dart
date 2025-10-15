@@ -31,9 +31,11 @@ class ImageUploadService {
         uploadTask = storageRef.putFile(File(image.path));
       }
 
-      // 4. Get download URL
+      // 4. Lấy URL gs:// ổn định
       final TaskSnapshot snapshot = await uploadTask;
-      return await snapshot.ref.getDownloadURL();
+      // TỐI ƯU: Trả về URL gs:// thay vì URL tải xuống có token hết hạn.
+      // URL này sẽ được hàm `firebaseImage` sử dụng để lấy URL tải xuống mới mỗi lần.
+      return 'gs://${snapshot.ref.bucket}/${snapshot.ref.fullPath}';
     } catch (e) {
       debugPrint('Error picking and uploading image: $e');
       return null;

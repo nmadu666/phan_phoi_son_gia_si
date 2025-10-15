@@ -5,10 +5,11 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:phan_phoi_son_gia_si/core/models/store_info.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:printing/printing.dart';
-
+import 'package:phan_phoi_son_gia_si/core/utils/firebase_image.dart';
 class ReceiptPrinterService {
   // --- Tối ưu hóa: Cache font và logo ---
   pw.ThemeData? _theme;
+  pw.Font? _fallbackFont;
   final Map<String, pw.ImageProvider> _logoCache = {};
 
   /// Initializes the service by pre-loading fonts.
@@ -22,13 +23,17 @@ class ReceiptPrinterService {
       rootBundle.load("assets/fonts/NotoSans-Bold.ttf"),
       rootBundle.load("assets/fonts/NotoSans-Italic.ttf"),
       rootBundle.load("assets/fonts/NotoSans-BoldItalic.ttf"),
+      // TỐI ƯU: Tải font fallback để hiển thị các ký tự đặc biệt
+      rootBundle.load("assets/fonts/NotoSans-Regular.ttf"),
     ]);
 
+    _fallbackFont = pw.Font.ttf(fontData[4]);
     _theme = pw.ThemeData.withFont(
       base: pw.Font.ttf(fontData[0]),
       bold: pw.Font.ttf(fontData[1]),
       italic: pw.Font.ttf(fontData[2]),
       boldItalic: pw.Font.ttf(fontData[3]),
+      fontFallback: [_fallbackFont!],
     );
   }
 
@@ -106,7 +111,10 @@ class ReceiptPrinterService {
     try {
       pw.ImageProvider? imageProvider;
       if (logoUrl != null && logoUrl.isNotEmpty) {
-        imageProvider = await networkImage(logoUrl);
+        // TỐI ƯU: Sử dụng firebaseImage thay vì networkImage để xử lý các URL của Firebase Storage
+        // một cách ổn định, tránh lỗi do token hết hạn.
+        // URL cần có dạng gs://<bucket>/<path_to_image>
+        imageProvider = await firebaseImage(logoUrl);
       } else {
         final byteData = await rootBundle.load('assets/images/logo.png');
         imageProvider = pw.MemoryImage(byteData.buffer.asUint8List());
@@ -163,19 +171,22 @@ class ReceiptPrinterService {
   }
 
   pw.Widget _buildTitle(TemporaryOrder order, String title) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.center,
-      children: [
-        pw.Text(
-          title,
-          style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 20),
-        ),
-        pw.SizedBox(height: 0.2 * PdfPageFormat.cm),
-        pw.Text(
-          'Ngày: ${DateFormat('dd/MM/yyyy HH:mm').format(order.createdAt)}',
-        ),
-        pw.Text('Số: ${order.kiotvietOrderCode ?? order.name}'),
-      ],
+    // TỐI ƯU: Đặt trong Center để căn giữa toàn bộ khối tiêu đề
+    return pw.Center(
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: [
+          pw.Text(
+            title,
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 20),
+          ),
+          pw.SizedBox(height: 0.2 * PdfPageFormat.cm),
+          pw.Text(
+            'Ngày: ${DateFormat('dd/MM/yyyy HH:mm').format(order.createdAt)}',
+          ),
+          pw.Text('Số: ${order.kiotvietOrderCode ?? order.name}'),
+        ],
+      ),
     );
   }
 
@@ -216,8 +227,10 @@ class ReceiptPrinterService {
       'Thành tiền',
     ];
 
-    final data = order.items.map((item) {
-      final index = order.items.indexOf(item) + 1;
+    // TỐI ƯU: Sử dụng asMap().entries.map để tránh dùng indexOf() trong vòng lặp (O(n^2) -> O(n))
+    final data = order.items.asMap().entries.map((entry) {
+      final index = entry.key + 1;
+      final item = entry.value;
       return [
         index.toString(),
         item.productFullName,
