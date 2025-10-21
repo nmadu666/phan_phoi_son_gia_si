@@ -86,6 +86,8 @@ class ReceiptPrinterService {
         // footer: (context) => _buildFooter(context), // TỐI ƯU: Loại bỏ footer theo yêu cầu
         build: (pw.Context context) {
           final content = pw.Column(
+            // TỐI ƯU: Giãn cột để chiếm toàn bộ chiều rộng, đồng nhất với header
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
               _buildTitle(order, title),
               pw.SizedBox(height: 0.8 * PdfPageFormat.cm),
@@ -395,5 +397,119 @@ class ReceiptPrinterService {
         ),
       ],
     );
+  }
+
+  /// TÍNH NĂNG MỚI: Tạo nội dung HTML cho hóa đơn để import vào Google Docs.
+  String generateHtml(TemporaryOrder order, StoreInfo storeInfo, String title) {
+    final buffer = StringBuffer();
+
+    // Sử dụng inline style để đảm bảo định dạng khi import vào Google Docs
+    buffer.writeln('<html><head><style>');
+    buffer.writeln(
+        'body { font-family: "Noto Sans", sans-serif; font-size: 10pt; }');
+    buffer.writeln(
+        'table { width: 100%; border-collapse: collapse; }');
+    buffer.writeln(
+        'th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }');
+    buffer.writeln('th { background-color: #f2f2f2; }');
+    buffer.writeln('.text-right { text-align: right; }');
+    buffer.writeln('.bold { font-weight: bold; }');
+    buffer.writeln(
+        '.header-table { border: none; } .header-table td { border: none; padding: 0; }');
+    buffer.writeln(
+        '.summary-table { width: 50%; float: right; } .summary-table td { border: none; }');
+    buffer.writeln(
+        '.signature-table { width: 100%; margin-top: 50px; } .signature-table td { border: none; text-align: center; }');
+    buffer.writeln('</style></head><body>');
+
+    // --- Header ---
+    buffer.writeln('<table class="header-table"><tr>');
+    buffer.writeln('<td>');
+    buffer.writeln('<h2>${storeInfo.name}</h2>');
+    buffer.writeln('<p>Địa chỉ: ${storeInfo.address}<br>');
+    buffer.writeln('Hotline: ${storeInfo.hotline}<br>');
+    buffer.writeln('Email: ${storeInfo.email}</p>');
+    buffer.writeln('</td>');
+    // Logo sẽ được thêm vào Google Docs sau nếu cần, HTML khó căn chỉnh
+    buffer.writeln('</tr></table>');
+
+    // --- Title ---
+    buffer.writeln('<div style="text-align: center;">');
+    buffer.writeln('<h1>$title</h1>');
+    buffer.writeln(
+        '<p>Ngày: ${DateFormat('dd/MM/yyyy HH:mm').format(order.createdAt)}<br>');
+    buffer.writeln('Số: ${order.kiotvietOrderCode ?? order.name}</p>');
+    buffer.writeln('</div>');
+
+    // --- Customer Info ---
+    buffer.writeln('<table class="header-table"><tr>');
+    buffer.writeln(
+        '<td>Khách hàng: ${order.customer?.name ?? 'Khách lẻ'}<br>');
+    if (order.customer != null) {
+      buffer.writeln('SĐT: ${order.customer!.contactNumber ?? 'N/A'}');
+    }
+    buffer.writeln('</td>');
+    buffer.writeln(
+        '<td style="text-align: right;">Nhân viên: ${order.seller?.givenName ?? 'N/A'}</td>');
+    buffer.writeln('</tr></table>');
+
+    buffer.writeln('<br>');
+
+    // --- Items Table ---
+    buffer.writeln('<table>');
+    buffer.writeln('<thead><tr>');
+    buffer.writeln('<th>STT</th>');
+    buffer.writeln('<th>Mã hàng</th>');
+    buffer.writeln('<th>Tên hàng hóa</th>');
+    buffer.writeln('<th>ĐVT</th>');
+    buffer.writeln('<th>SL</th>');
+    buffer.writeln('<th>Đơn giá</th>');
+    buffer.writeln('<th>Thành tiền</th>');
+    buffer.writeln('</tr></thead>');
+    buffer.writeln('<tbody>');
+    for (var i = 0; i < order.items.length; i++) {
+      final item = order.items[i];
+      buffer.writeln('<tr>');
+      buffer.writeln('<td>${i + 1}</td>');
+      buffer.writeln('<td>${item.productCode}</td>');
+      buffer.writeln('<td>${item.productFullName}</td>');
+      buffer.writeln('<td>${item.unit}</td>');
+      buffer.writeln(
+          '<td class="text-right">${item.quantity.toStringAsFixed(0)}</td>');
+      buffer.writeln(
+          '<td class="text-right">${currencyFormat.format(item.unitPrice)}</td>');
+      buffer.writeln(
+          '<td class="text-right">${currencyFormat.format(item.totalAfterDiscount)}</td>');
+      buffer.writeln('</tr>');
+    }
+    buffer.writeln('</tbody></table>');
+
+    // --- Summary ---
+    buffer.writeln('<br>');
+    buffer.writeln('<p><b>Ghi chú:</b> ${order.description ?? ''}</p>');
+    buffer.writeln('<table class="summary-table">');
+    buffer.writeln(
+        '<tr><td>Tổng tiền hàng:</td><td class="text-right">${currencyFormat.format(order.totalBeforeDiscount)}</td></tr>');
+    buffer.writeln(
+        '<tr><td>Tổng chiết khấu:</td><td class="text-right">${currencyFormat.format(order.totalDiscount)}</td></tr>');
+    buffer.writeln(
+        '<tr><td colspan="2"><hr></td></tr>');
+    buffer.writeln(
+        '<tr><td class="bold">Khách cần trả:</td><td class="text-right bold">${currencyFormat.format(order.total)}</td></tr>');
+    buffer.writeln('</table>');
+    buffer.writeln('<div style="clear: both;"></div>');
+
+    // --- Signature ---
+    buffer.writeln('<table class="signature-table">');
+    buffer.writeln('<tr>');
+    buffer.writeln(
+        '<td><b>Khách hàng</b><br><i>(Ký, ghi rõ họ tên)</i></td>');
+    buffer.writeln(
+        '<td><b>Người bán hàng</b><br><i>(Ký, ghi rõ họ tên)</i></td>');
+    buffer.writeln('</tr>');
+    buffer.writeln('</table>');
+
+    buffer.writeln('</body></html>');
+    return buffer.toString();
   }
 }

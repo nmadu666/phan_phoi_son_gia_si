@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
+import 'package:phan_phoi_son_gia_si/core/services/google_api_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/store_info.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/store_info_service.dart';
@@ -40,8 +41,16 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
   late TextEditingController _marginLeftController;
   late TextEditingController _marginRightController;
   // TÍNH NĂNG MỚI: State cho tùy chọn lề và tỷ lệ
-  MarginPreset _selectedMarginPreset = MarginPreset.normal;
-  double _scaleFactor = 1.0;
+  MarginPreset _selectedMarginPreset =
+      MarginPreset.minimal; // Đổi mặc định sang Tối thiểu
+  double _scaleFactor = 0.8; // Đổi mặc định sang 80%
+
+  // TÍNH NĂNG MỚI: State cho Google Docs
+  bool _isProcessingGoogleDocs = false;
+  String? _googleDocId;
+  String? _processingError;
+
+  late final GoogleApiService _googleApiService;
 
   // Định nghĩa các khổ giấy có sẵn
   final Map<String, PdfPageFormat> _pageFormats = {
@@ -62,20 +71,21 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
     final storeService = context.read<StoreInfoService>();
     _selectedStore = storeService.defaultStore;
     _titleController = TextEditingController(text: 'HÓA ĐƠN BÁN HÀNG');
+    _googleApiService = context.read<GoogleApiService>();
     _selectedPageFormat = _pageFormats['A4']!; // Mặc định là A4
 
-    // Khởi tạo giá trị mặc định cho lề (1.5 cm)
+    // Khởi tạo giá trị mặc định cho lề theo preset đã chọn (Tối thiểu - 5mm)
     _marginTopController = TextEditingController(
-      text: MarginPreset.normal.value.toStringAsFixed(0),
+      text: _selectedMarginPreset.value.toStringAsFixed(0),
     );
     _marginBottomController = TextEditingController(
-      text: MarginPreset.normal.value.toStringAsFixed(0),
+      text: _selectedMarginPreset.value.toStringAsFixed(0),
     );
     _marginLeftController = TextEditingController(
-      text: MarginPreset.normal.value.toStringAsFixed(0),
+      text: _selectedMarginPreset.value.toStringAsFixed(0),
     );
     _marginRightController = TextEditingController(
-      text: MarginPreset.normal.value.toStringAsFixed(0),
+      text: _selectedMarginPreset.value.toStringAsFixed(0),
     );
   }
 
@@ -102,6 +112,65 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
       _marginLeftController.text = value;
       _marginRightController.text = value;
     });
+  }
+
+  /// TÍNH NĂNG MỚI: Xử lý luồng tạo và mở Google Docs
+  Future<void> _handleEditWithGoogleDocs() async {
+    setState(() {
+      _isProcessingGoogleDocs = true;
+      _processingError = null;
+      _googleDocId = null;
+    });
+
+    try {
+      // 1. Xác thực nếu cần
+      if (!_googleApiService.isAuthenticated) {
+        final authenticated = await _googleApiService.authenticate();
+        if (!authenticated) {
+          throw Exception('Xác thực Google thất bại.');
+        }
+      }
+
+      // 2. Tạo nội dung HTML
+      final htmlContent = context.read<ReceiptPrinterService>().generateHtml(
+            widget.order,
+            _selectedStore,
+            _titleController.text,
+          );
+
+      // 3. Tạo Google Doc từ HTML
+      final docId = await _googleApiService.createDocumentFromHtml(
+          htmlContent, _titleController.text);
+
+      if (docId == null) {
+        throw Exception('Không thể tạo file Google Docs.');
+      }
+
+      setState(() {
+        _googleDocId = docId;
+      });
+
+      // 4. Mở file để chỉnh sửa
+      await _googleApiService.openDocumentForEditing(docId);
+    } catch (e) {
+      setState(() => _processingError = e.toString());
+    } finally {
+      setState(() => _isProcessingGoogleDocs = false);
+    }
+  }
+
+  /// TÍNH NĂNG MỚI: Xử lý luồng xuất PDF và in
+  Future<void> _handlePrintFromGoogleDocs() async {
+    if (_googleDocId == null) return;
+    setState(() => _isProcessingGoogleDocs = true);
+    try {
+      final pdfBytes = await _googleApiService.exportDocumentAsPdf(_googleDocId!);
+      if (pdfBytes != null) {
+        await Printing.layoutPdf(onLayout: (_) => pdfBytes);
+      }
+    } finally {
+      setState(() => _isProcessingGoogleDocs = false);
+    }
   }
 
   @override
@@ -222,7 +291,7 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
                 const SizedBox(height: 24),
                 // TÍNH NĂNG MỚI: Dropdown chọn canh lề
                 DropdownButtonFormField<MarginPreset>(
-                  value: _selectedMarginPreset,
+                  initialValue: _selectedMarginPreset,
                   decoration: const InputDecoration(
                     labelText: 'Canh lề',
                     border: OutlineInputBorder(),
@@ -296,6 +365,41 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
                     });
                   },
                 ),
+                const Spacer(), // Đẩy các nút Google Docs xuống dưới
+                if (_processingError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: Text(
+                      'Lỗi: $_processingError',
+                      style: TextStyle(color: Theme.of(context).colorScheme.error),
+                    ),
+                  ),
+                if (_isProcessingGoogleDocs)
+                  const Center(child: CircularProgressIndicator()),
+                if (!_isProcessingGoogleDocs) ...[
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.edit_document),
+                      label: const Text('Chỉnh sửa bằng Google Docs'),
+                      onPressed: _handleEditWithGoogleDocs,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue.shade700,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      icon: const Icon(Icons.print),
+                      label: const Text('In từ Google Docs'),
+                      onPressed: _googleDocId == null ? null : _handlePrintFromGoogleDocs,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
               ],
             ),
           ),
