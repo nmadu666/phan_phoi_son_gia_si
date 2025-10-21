@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:phan_phoi_son_gia_si/core/services/google_api_service.dart';
 import 'package:phan_phoi_son_gia_si/core/models/store_info.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/store_info_service.dart';
+import 'package:phan_phoi_son_gia_si/core/models/cart_item.dart';
 import 'package:phan_phoi_son_gia_si/core/utils/receipt_printer_service.dart';
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
@@ -49,6 +51,10 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
   bool _isProcessingGoogleDocs = false;
   String? _googleDocId;
   String? _processingError;
+
+  // ID của tệp Google Docs mẫu. Cần được thay thế bằng ID thực tế của bạn.
+  // Lấy từ URL của Google Docs: https://docs.google.com/document/d/YOUR_TEMPLATE_ID_HERE/edit
+  static const String _googleDocsTemplateId = 'YOUR_GOOGLE_DOCS_TEMPLATE_ID_HERE';
 
   late final GoogleApiService _googleApiService;
 
@@ -131,21 +137,23 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
         }
       }
 
-      // 2. Tạo nội dung HTML
-      final htmlContent = context.read<ReceiptPrinterService>().generateHtml(
-            widget.order,
-            _selectedStore,
-            _titleController.text,
-          );
+      // 2. Chuẩn bị dữ liệu để điền vào template
+      final invoiceData = _prepareInvoiceData(
+        widget.order,
+        _selectedStore,
+        _titleController.text,
+      );
 
-      // 3. Tạo Google Doc từ HTML
-      final docId = await _googleApiService.createDocumentFromHtml(
-          htmlContent, _titleController.text);
+      // 3. Tạo Google Doc từ template và điền dữ liệu
+      final docId = await _googleApiService.createInvoiceFromTemplate(
+        _googleDocsTemplateId,
+        invoiceData,
+        folderName: 'Hóa Đơn POS Tạm Thời', // Lưu vào thư mục đã cấu hình
+      );
 
       if (docId == null) {
         throw Exception('Không thể tạo file Google Docs.');
       }
-
       setState(() {
         _googleDocId = docId;
       });
@@ -470,6 +478,78 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
       keyboardType: TextInputType.number,
       onChanged: (value) => setState(() {}), // Rebuild on change
     );
+  }
+
+  /// Chuẩn bị dữ liệu từ TemporaryOrder và StoreInfo để điền vào Google Docs template.
+  ///
+  /// Lưu ý: Phương thức replaceAllText của Google Docs API không hỗ trợ thêm
+  /// dòng động vào bảng. Do đó, template cần có sẵn các placeholder cho số lượng
+  /// dòng sản phẩm tối đa mà bạn muốn hỗ trợ.
+  Map<String, String> _prepareInvoiceData(
+    TemporaryOrder order,
+    StoreInfo storeInfo,
+    String title,
+  ) {
+    final Map<String, String> data = {};
+    final currencyFormat = NumberFormat.currency(locale: 'vi_VN', symbol: '₫');
+
+    // Thông tin cửa hàng
+    data['ten_cua_hang'] = storeInfo.name;
+    data['dia_chi_cua_hang'] = storeInfo.address;
+    data['hotline_cua_hang'] = storeInfo.hotline;
+    data['email_cua_hang'] = storeInfo.email;
+
+    // Thông tin hóa đơn
+    data['tieu_de_hoa_don'] = title;
+    data['ngay_hoa_don'] =
+        DateFormat('dd/MM/yyyy HH:mm').format(order.createdAt);
+    data['so_hoa_don'] = order.kiotvietOrderCode ?? order.name;
+
+    // Thông tin khách hàng
+    data['ten_khach_hang'] = order.customer?.name ?? 'Khách lẻ';
+    data['sdt_khach_hang'] = order.customer?.contactNumber ?? 'N/A';
+    data['dia_chi_khach_hang'] = order.customer?.address ?? 'N/A';
+
+    // Thông tin nhân viên
+    data['nhan_vien_ban_hang'] = order.seller?.givenName ?? 'N/A';
+
+    // Thông tin sản phẩm (giả định template có sẵn các placeholder cho từng dòng)
+    // Cần đảm bảo template có đủ số lượng placeholder cho số lượng item tối đa
+    // mà bạn muốn hiển thị. Ví dụ: {{stt_1}}, {{ten_hang_hoa_1}}, {{sl_1}}, ...
+    // Nếu số lượng item ít hơn placeholder, các placeholder còn lại sẽ được thay thế bằng chuỗi rỗng.
+    // Nếu số lượng item nhiều hơn placeholder, các item thừa sẽ không được hiển thị.
+    const int maxTemplateItems = 10; // Giả định template có placeholder cho tối đa 10 dòng sản phẩm
+
+    for (int i = 0; i < maxTemplateItems; i++) {
+      if (i < order.items.length) {
+        final CartItem item = order.items[i];
+        data['stt_${i + 1}'] = (i + 1).toString();
+        data['ma_hang_${i + 1}'] = item.productCode;
+        data['ten_hang_hoa_${i + 1}'] = item.productFullName;
+        data['dvt_${i + 1}'] = item.unit;
+        data['sl_${i + 1}'] = item.quantity.toStringAsFixed(0);
+        data['don_gia_${i + 1}'] = currencyFormat.format(item.unitPrice);
+        data['thanh_tien_${i + 1}'] =
+            currencyFormat.format(item.totalAfterDiscount);
+      } else {
+        // Điền chuỗi rỗng cho các placeholder không sử dụng
+        data['stt_${i + 1}'] = '';
+        data['ma_hang_${i + 1}'] = '';
+        data['ten_hang_hoa_${i + 1}'] = '';
+        data['dvt_${i + 1}'] = '';
+        data['sl_${i + 1}'] = '';
+        data['don_gia_${i + 1}'] = '';
+        data['thanh_tien_${i + 1}'] = '';
+      }
+    }
+
+    // Thông tin tổng kết
+    data['ghi_chu'] = order.description ?? '';
+    data['tong_tien_hang'] = currencyFormat.format(order.totalBeforeDiscount);
+    data['tong_chiet_khau'] = currencyFormat.format(order.totalDiscount);
+    data['khach_can_tra'] = currencyFormat.format(order.total);
+
+    return data;
   }
 }
 
