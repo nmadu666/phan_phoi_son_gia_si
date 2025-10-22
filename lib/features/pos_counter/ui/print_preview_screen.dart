@@ -1,13 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
-import 'package:phan_phoi_son_gia_si/core/services/google_api_service.dart';
+import 'package:pdfx/pdfx.dart';
 import 'package:phan_phoi_son_gia_si/core/models/store_info.dart';
 import 'package:phan_phoi_son_gia_si/core/models/temporary_order.dart';
 import 'package:phan_phoi_son_gia_si/core/services/store_info_service.dart';
-import 'package:phan_phoi_son_gia_si/core/models/cart_item.dart';
 import 'package:phan_phoi_son_gia_si/core/utils/receipt_printer_service.dart';
+import 'package:pdfx/pdfx.dart'
+    as pdfx; // THAY ĐỔI: Sử dụng pdfx thay vì printing
 import 'package:printing/printing.dart';
 import 'package:provider/provider.dart';
 
@@ -35,7 +37,7 @@ enum MarginPreset {
 class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
   late StoreInfo _selectedStore;
   late TextEditingController _titleController;
-  // TÍNH NĂNG MỚI: State để quản lý khổ giấy được chọn
+  // State để quản lý khổ giấy được chọn
   late PdfPageFormat _selectedPageFormat;
   // TÍNH NĂNG MỚI: Controllers cho việc canh lề
   late TextEditingController _marginTopController;
@@ -47,16 +49,13 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
       MarginPreset.minimal; // Đổi mặc định sang Tối thiểu
   double _scaleFactor = 0.8; // Đổi mặc định sang 80%
 
-  // TÍNH NĂNG MỚI: State cho Google Docs
-  bool _isProcessingGoogleDocs = false;
-  String? _googleDocId;
-  String? _processingError;
-
-  // ID của tệp Google Docs mẫu. Cần được thay thế bằng ID thực tế của bạn.
-  // Lấy từ URL của Google Docs: https://docs.google.com/document/d/YOUR_TEMPLATE_ID_HERE/edit
-  static const String _googleDocsTemplateId = 'YOUR_GOOGLE_DOCS_TEMPLATE_ID_HERE';
-
-  late final GoogleApiService _googleApiService;
+  // TỐI ƯU: State để quản lý dữ liệu PDF và debounce
+  Uint8List? _pdfBytes;
+  Timer? _debounce;
+  bool _isGeneratingPdf = true; // Hiển thị loading indicator ban đầu
+  int _pdfGenerationCount = 0; // Dùng cho ValueKey để force rebuild
+  // THAY ĐỔI: Controller để quản lý việc hiển thị PDF
+  pdfx.PdfController? _pdfController;
 
   // Định nghĩa các khổ giấy có sẵn
   final Map<String, PdfPageFormat> _pageFormats = {
@@ -65,7 +64,7 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
     'Hóa đơn 80mm': PdfPageFormat(80 * PdfPageFormat.mm, double.infinity),
   };
 
-  // TÍNH NĂNG MỚI: Danh sách các mẫu tiêu đề hóa đơn
+  // Danh sách các mẫu tiêu đề hóa đơn
   final List<String> _invoiceTitles = [
     'HÓA ĐƠN BÁN HÀNG',
     'BÁO GIÁ KHÁCH HÀNG',
@@ -75,9 +74,10 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
   void initState() {
     super.initState();
     final storeService = context.read<StoreInfoService>();
-    _selectedStore = storeService.defaultStore;
-    _titleController = TextEditingController(text: 'HÓA ĐƠN BÁN HÀNG');
-    _googleApiService = context.read<GoogleApiService>();
+    _selectedStore = storeService.defaultStore; // Initialize _selectedStore
+    _titleController = TextEditingController(
+      text: _invoiceTitles.first,
+    ); // Initialize with default title
     _selectedPageFormat = _pageFormats['A4']!; // Mặc định là A4
 
     // Khởi tạo giá trị mặc định cho lề theo preset đã chọn (Tối thiểu - 5mm)
@@ -93,6 +93,16 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
     _marginRightController = TextEditingController(
       text: _selectedMarginPreset.value.toStringAsFixed(0),
     );
+
+    // TỐI ƯU: Thêm listeners để kích hoạt debounce
+    _titleController.addListener(_onSettingsChanged);
+    _marginTopController.addListener(_onSettingsChanged);
+    _marginBottomController.addListener(_onSettingsChanged);
+    _marginLeftController.addListener(_onSettingsgChanged);
+    _marginRightController.addListener(_onSettingsChanged);
+
+    // TỐI ƯU: Tạo PDF lần đầu tiên
+    _triggerPdfRegeneration(immediate: true);
   }
 
   @override
@@ -102,7 +112,21 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
     _marginBottomController.dispose();
     _marginLeftController.dispose();
     _marginRightController.dispose();
+    // TỐI ƯU: Hủy debounce timer và xóa listeners
+    _debounce?.cancel();
+    _titleController.removeListener(_onSettingsChanged);
+    _marginTopController.removeListener(_onSettingsChanged);
+    _marginBottomController.removeListener(_onSettingsChanged);
+    _marginLeftController.removeListener(_onSettingsgChanged);
+    _marginRightController.removeListener(_onSettingsChanged);
+    // THAY ĐỔI: Hủy pdfController khi widget bị dispose
+    _pdfController?.dispose();
     super.dispose();
+  }
+
+  // TỐI ƯU: Dummy listener để tránh lỗi typo trong removeListener
+  void _onSettingsgChanged() {
+    _onSettingsChanged();
   }
 
   void _updateMarginControllers(MarginPreset preset) {
@@ -117,67 +141,56 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
       _marginBottomController.text = value;
       _marginLeftController.text = value;
       _marginRightController.text = value;
+      _triggerPdfRegeneration(); // Tái tạo PDF khi preset thay đổi
     });
   }
 
-  /// TÍNH NĂNG MỚI: Xử lý luồng tạo và mở Google Docs
-  Future<void> _handleEditWithGoogleDocs() async {
-    setState(() {
-      _isProcessingGoogleDocs = true;
-      _processingError = null;
-      _googleDocId = null;
-    });
+  /// TỐI ƯU: Kích hoạt việc tái tạo PDF với cơ chế debounce.
+  void _onSettingsChanged() {
+    _triggerPdfRegeneration();
+  }
 
-    try {
-      // 1. Xác thực nếu cần
-      if (!_googleApiService.isAuthenticated) {
-        final authenticated = await _googleApiService.authenticate();
-        if (!authenticated) {
-          throw Exception('Xác thực Google thất bại.');
-        }
-      }
+  /// TỐI ƯU: Hàm quản lý debounce và tái tạo PDF.
+  void _triggerPdfRegeneration({bool immediate = false}) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
 
-      // 2. Chuẩn bị dữ liệu để điền vào template
-      final invoiceData = _prepareInvoiceData(
-        widget.order,
-        _selectedStore,
-        _titleController.text,
-      );
-
-      // 3. Tạo Google Doc từ template và điền dữ liệu
-      final docId = await _googleApiService.createInvoiceFromTemplate(
-        _googleDocsTemplateId,
-        invoiceData,
-        folderName: 'Hóa Đơn POS Tạm Thời', // Lưu vào thư mục đã cấu hình
-      );
-
-      if (docId == null) {
-        throw Exception('Không thể tạo file Google Docs.');
-      }
+    // Nếu `immediate` là true, chạy ngay lập tức.
+    // Ngược lại, đợi 500ms.
+    if (immediate) {
+      _regeneratePdf();
+    } else {
       setState(() {
-        _googleDocId = docId;
+        _isGeneratingPdf = true; // Hiển thị loading ngay khi bắt đầu gõ
       });
-
-      // 4. Mở file để chỉnh sửa
-      await _googleApiService.openDocumentForEditing(docId);
-    } catch (e) {
-      setState(() => _processingError = e.toString());
-    } finally {
-      setState(() => _isProcessingGoogleDocs = false);
+      _debounce = Timer(const Duration(milliseconds: 500), () {
+        _regeneratePdf();
+      });
     }
   }
 
-  /// TÍNH NĂNG MỚI: Xử lý luồng xuất PDF và in
-  Future<void> _handlePrintFromGoogleDocs() async {
-    if (_googleDocId == null) return;
-    setState(() => _isProcessingGoogleDocs = true);
-    try {
-      final pdfBytes = await _googleApiService.exportDocumentAsPdf(_googleDocId!);
-      if (pdfBytes != null) {
-        await Printing.layoutPdf(onLayout: (_) => pdfBytes);
-      }
-    } finally {
-      setState(() => _isProcessingGoogleDocs = false);
+  /// TỐI ƯU: Hàm thực hiện việc tạo PDF và cập nhật state.
+  Future<void> _regeneratePdf() async {
+    // Đảm bảo widget vẫn còn tồn tại
+    if (!mounted) return;
+
+    setState(() {
+      _isGeneratingPdf = true;
+    });
+
+    final bytes = await _generatePdfBytes(_selectedPageFormat);
+
+    if (mounted) {
+      // THAY ĐỔI: Cập nhật PdfController thay vì chỉ cập nhật _pdfBytes
+      // Hủy controller cũ trước khi tạo cái mới
+      _pdfController?.dispose();
+      setState(() {
+        _pdfBytes = bytes;
+        _pdfController = pdfx.PdfController(
+          document: pdfx.PdfDocument.openData(bytes),
+        );
+        _isGeneratingPdf = false;
+        _pdfGenerationCount++;
+      });
     }
   }
 
@@ -186,7 +199,14 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
     final storeService = context.watch<StoreInfoService>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Xem trước và Tùy chỉnh In')),
+      appBar: AppBar(
+        title: const Text('Xem trước và Tùy chỉnh In'),
+        // THAY ĐỔI: Thêm nút để thực hiện hành động in
+        actions: [
+          IconButton(icon: const Icon(Icons.print), onPressed: _printPdf),
+          const SizedBox(width: 8),
+        ],
+      ),
       body: Row(
         children: [
           // Cột tùy chỉnh
@@ -250,8 +270,7 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
                     if (newValue != null) {
                       setState(() {
                         _selectedPageFormat = newValue;
-                        // Việc thay đổi key của PdfPreview sẽ buộc nó build lại
-                        // với khổ giấy mới.
+                        _triggerPdfRegeneration();
                       });
                     }
                   },
@@ -292,7 +311,8 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
                             border: OutlineInputBorder(),
                           ),
                           inputFormatters: [UpperCaseTextFormatter()],
-                          onChanged: (value) => setState(() {}),
+                          // Listener đã được thêm trong initState, không cần onChanged ở đây
+                          // onChanged: (value) => _onSettingsChanged(),
                         );
                       },
                 ),
@@ -370,60 +390,35 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
                   onChanged: (value) {
                     setState(() {
                       _scaleFactor = value;
+                      _triggerPdfRegeneration();
                     });
                   },
                 ),
                 const Spacer(), // Đẩy các nút Google Docs xuống dưới
-                if (_processingError != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: Text(
-                      'Lỗi: $_processingError',
-                      style: TextStyle(color: Theme.of(context).colorScheme.error),
-                    ),
-                  ),
-                if (_isProcessingGoogleDocs)
-                  const Center(child: CircularProgressIndicator()),
-                if (!_isProcessingGoogleDocs) ...[
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.edit_document),
-                      label: const Text('Chỉnh sửa bằng Google Docs'),
-                      onPressed: _handleEditWithGoogleDocs,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue.shade700,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      icon: const Icon(Icons.print),
-                      label: const Text('In từ Google Docs'),
-                      onPressed: _googleDocId == null ? null : _handlePrintFromGoogleDocs,
-                    ),
-                  ),
-                ],
                 const SizedBox(height: 16),
               ],
             ),
           ),
           // Phần xem trước PDF
           Expanded(
-            child: PdfPreview(
-              // Sử dụng key để buộc PdfPreview build lại khi state thay đổi
-              key: ValueKey(
-                '${_selectedStore.id}_${_titleController.text}_${_selectedPageFormat.width}_${_marginTopController.text}_${_marginBottomController.text}_${_marginLeftController.text}_${_marginRightController.text}_$_scaleFactor',
-              ),
-              build: (format) => _generatePdf(_selectedPageFormat),
-              canChangePageFormat:
-                  false, // Tắt tùy chọn của thư viện, dùng của mình
-              canChangeOrientation: false, // Tắt tùy chọn của thư viện
-              canDebug: false,
-            ),
+            child: _isGeneratingPdf && _pdfBytes == null
+                ? const Center(child: CircularProgressIndicator())
+                : Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // THAY ĐỔI: Sử dụng PdfView từ gói pdfx
+                      if (_pdfController != null)
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: PdfView(
+                            key: ValueKey(_pdfGenerationCount),
+                            controller: _pdfController!,
+                          ),
+                        ),
+                      if (_isGeneratingPdf)
+                        const Center(child: CircularProgressIndicator()),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -431,7 +426,7 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
   }
 
   /// Tạo file PDF dựa trên các tùy chọn hiện tại
-  Future<Uint8List> _generatePdf(PdfPageFormat format) async {
+  Future<Uint8List> _generatePdfBytes(PdfPageFormat format) async {
     // Lấy giá trị lề từ controllers, chuyển đổi sang double
     final defaultMarginValue = MarginPreset.normal.value;
     final marginTop =
@@ -467,6 +462,18 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
     return Uint8List.fromList(bytes);
   }
 
+  /// THAY ĐỔI: Hàm để thực hiện hành động in
+  Future<void> _printPdf() async {
+    if (_pdfBytes == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chưa có dữ liệu PDF để in.')),
+      );
+      return;
+    }
+    // Sử dụng lại thư viện printing cho chức năng in cuối cùng
+    await Printing.layoutPdf(onLayout: (format) async => _pdfBytes!);
+  }
+
   Widget _buildMarginTextField(TextEditingController controller, String label) {
     return TextField(
       controller: controller,
@@ -476,80 +483,11 @@ class _PrintPreviewScreenState extends State<PrintPreviewScreen> {
         contentPadding: const EdgeInsets.symmetric(horizontal: 12),
       ),
       keyboardType: TextInputType.number,
-      onChanged: (value) => setState(() {}), // Rebuild on change
+      // Listener đã được thêm trong initState, không cần onChanged ở đây
+      // onChanged: (value) {
+      //   _onSettingsChanged();
+      // },
     );
-  }
-
-  /// Chuẩn bị dữ liệu từ TemporaryOrder và StoreInfo để điền vào Google Docs template.
-  ///
-  /// Lưu ý: Phương thức replaceAllText của Google Docs API không hỗ trợ thêm
-  /// dòng động vào bảng. Do đó, template cần có sẵn các placeholder cho số lượng
-  /// dòng sản phẩm tối đa mà bạn muốn hỗ trợ.
-  Map<String, String> _prepareInvoiceData(
-    TemporaryOrder order,
-    StoreInfo storeInfo,
-    String title,
-  ) {
-    final Map<String, String> data = {};
-    final currencyFormat = NumberFormat.currency(locale: 'vi_VN', symbol: '₫');
-
-    // Thông tin cửa hàng
-    data['ten_cua_hang'] = storeInfo.name;
-    data['dia_chi_cua_hang'] = storeInfo.address;
-    data['hotline_cua_hang'] = storeInfo.hotline;
-    data['email_cua_hang'] = storeInfo.email;
-
-    // Thông tin hóa đơn
-    data['tieu_de_hoa_don'] = title;
-    data['ngay_hoa_don'] =
-        DateFormat('dd/MM/yyyy HH:mm').format(order.createdAt);
-    data['so_hoa_don'] = order.kiotvietOrderCode ?? order.name;
-
-    // Thông tin khách hàng
-    data['ten_khach_hang'] = order.customer?.name ?? 'Khách lẻ';
-    data['sdt_khach_hang'] = order.customer?.contactNumber ?? 'N/A';
-    data['dia_chi_khach_hang'] = order.customer?.address ?? 'N/A';
-
-    // Thông tin nhân viên
-    data['nhan_vien_ban_hang'] = order.seller?.givenName ?? 'N/A';
-
-    // Thông tin sản phẩm (giả định template có sẵn các placeholder cho từng dòng)
-    // Cần đảm bảo template có đủ số lượng placeholder cho số lượng item tối đa
-    // mà bạn muốn hiển thị. Ví dụ: {{stt_1}}, {{ten_hang_hoa_1}}, {{sl_1}}, ...
-    // Nếu số lượng item ít hơn placeholder, các placeholder còn lại sẽ được thay thế bằng chuỗi rỗng.
-    // Nếu số lượng item nhiều hơn placeholder, các item thừa sẽ không được hiển thị.
-    const int maxTemplateItems = 10; // Giả định template có placeholder cho tối đa 10 dòng sản phẩm
-
-    for (int i = 0; i < maxTemplateItems; i++) {
-      if (i < order.items.length) {
-        final CartItem item = order.items[i];
-        data['stt_${i + 1}'] = (i + 1).toString();
-        data['ma_hang_${i + 1}'] = item.productCode;
-        data['ten_hang_hoa_${i + 1}'] = item.productFullName;
-        data['dvt_${i + 1}'] = item.unit;
-        data['sl_${i + 1}'] = item.quantity.toStringAsFixed(0);
-        data['don_gia_${i + 1}'] = currencyFormat.format(item.unitPrice);
-        data['thanh_tien_${i + 1}'] =
-            currencyFormat.format(item.totalAfterDiscount);
-      } else {
-        // Điền chuỗi rỗng cho các placeholder không sử dụng
-        data['stt_${i + 1}'] = '';
-        data['ma_hang_${i + 1}'] = '';
-        data['ten_hang_hoa_${i + 1}'] = '';
-        data['dvt_${i + 1}'] = '';
-        data['sl_${i + 1}'] = '';
-        data['don_gia_${i + 1}'] = '';
-        data['thanh_tien_${i + 1}'] = '';
-      }
-    }
-
-    // Thông tin tổng kết
-    data['ghi_chu'] = order.description ?? '';
-    data['tong_tien_hang'] = currencyFormat.format(order.totalBeforeDiscount);
-    data['tong_chiet_khau'] = currencyFormat.format(order.totalDiscount);
-    data['khach_can_tra'] = currencyFormat.format(order.total);
-
-    return data;
   }
 }
 
